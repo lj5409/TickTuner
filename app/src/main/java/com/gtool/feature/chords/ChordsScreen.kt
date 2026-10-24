@@ -24,12 +24,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -44,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +57,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gtool.core.audio.ChordStyle
+import com.gtool.core.music.ArpeggioPattern
 import com.gtool.core.music.ChordQuality
 import com.gtool.core.music.Note
 import com.gtool.core.music.PitchClass
@@ -125,6 +130,7 @@ fun ChordsScreen(viewModel: ChordsViewModel = viewModel()) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Header(state)
+        TuningCard(state = state, onSelect = viewModel::setTuning)
         RootSelector(state = state, onSelect = viewModel::setRoot)
         QualitySelector(state = state, onSelect = viewModel::setQuality)
         ToneCard(state)
@@ -140,6 +146,7 @@ fun ChordsScreen(viewModel: ChordsViewModel = viewModel()) {
             onStyle = viewModel::setStyle,
             onBpm = viewModel::setBpm,
             onLoop = viewModel::setLoop,
+            onPattern = viewModel::setArpeggioPattern,
             onTogglePlay = viewModel::togglePlayback
         )
         Spacer(Modifier.height(6.dp))
@@ -424,6 +431,43 @@ private fun VoicingCard(
     }
 }
 
+@Composable
+private fun TuningCard(state: ChordsUiState, onSelect: (String) -> Unit) {
+    SectionCard {
+        SectionTitle(
+            title = "调弦",
+            trailing = state.tuning.joinedNames(state.useFlats)
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(state.allTunings, key = { it.id }) { tuning ->
+                FilterChip(
+                    selected = tuning.id == state.tuning.id,
+                    onClick = { onSelect(tuning.id) },
+                    label = {
+                        Text(
+                            text = tuning.name,
+                            fontSize = 13.sp,
+                            fontWeight = if (tuning.id == state.tuning.id) {
+                                FontWeight.SemiBold
+                            } else {
+                                FontWeight.Normal
+                            }
+                        )
+                    },
+                    modifier = Modifier.heightIn(min = 44.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = chipColors()
+                )
+            }
+        }
+        Text(
+            text = "切换后指板音位、组成音位置与推荐指法都会按新调弦重算。",
+            color = TextMuted,
+            fontSize = 11.sp
+        )
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CapoCard(state: ChordsUiState, onSelect: (Int) -> Unit) {
@@ -471,6 +515,7 @@ private fun PlaybackCard(
     onStyle: (ChordStyle) -> Unit,
     onBpm: (Int) -> Unit,
     onLoop: (Boolean) -> Unit,
+    onPattern: (String) -> Unit,
     onTogglePlay: () -> Unit
 ) {
     SectionCard {
@@ -495,6 +540,49 @@ private fun PlaybackCard(
                     colors = chipColors()
                 )
             }
+        }
+
+        if (state.style == ChordStyle.ARPEGGIO) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "拨弦顺序",
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.width(62.dp)
+                )
+                OutlinedTextField(
+                    value = state.arpeggioPattern,
+                    onValueChange = onPattern,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                        letterSpacing = 2.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    placeholder = { Text(ArpeggioPattern.DEFAULT, color = TextMuted) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(6.dp))
+                TextButton(onClick = { onPattern(ArpeggioPattern.DEFAULT) }) {
+                    Text("重置", fontSize = 12.sp)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("53231323", "5323", "63231323").forEach { preset ->
+                    FilterChip(
+                        selected = state.arpeggioPattern == preset,
+                        onClick = { onPattern(preset) },
+                        label = { Text(preset, fontSize = 12.sp) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = chipColors()
+                    )
+                }
+            }
+            Text(
+                text = "数字为弦号（1=高音 E，6=低音 E），每步一个八分音符；留空则使用 53231323。",
+                color = TextMuted,
+                fontSize = 10.sp
+            )
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -542,7 +630,11 @@ private fun PlaybackCard(
             }
         }
         Text(
-            text = "扫弦每弦间隔 30 ms；分解为 53231323 八分音符。播放时指板逐弦高亮。",
+            text = if (state.style == ChordStyle.ARPEGGIO) {
+                "分解按上方顺序演奏，每步一个八分音符；播放时指板逐弦高亮。"
+            } else {
+                "扫弦每弦间隔 30 ms；播放时指板逐弦高亮。"
+            },
             color = TextMuted,
             fontSize = 10.sp
         )

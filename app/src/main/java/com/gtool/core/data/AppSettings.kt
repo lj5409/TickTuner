@@ -35,6 +35,8 @@ data class AppSettings(
     val capo: Int = 0,
     val lastTuningId: String = "standard",
     val showNoteNamesOnFretboard: Boolean = true,
+    /** 分解和弦拨弦顺序（弦号 1–6，默认 53231323）。 */
+    val arpeggioPattern: String = "53231323",
     val metronome: MetronomeSettings = MetronomeSettings()
 )
 

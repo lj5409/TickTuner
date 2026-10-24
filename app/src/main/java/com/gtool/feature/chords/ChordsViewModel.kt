@@ -8,6 +8,7 @@ import com.gtool.core.audio.ChordPlayer
 import com.gtool.core.audio.ChordStyle
 import com.gtool.core.audio.GuitarSynth
 import com.gtool.core.data.AppState
+import com.gtool.core.music.ArpeggioPattern
 import com.gtool.core.music.Chord
 import com.gtool.core.music.ChordQuality
 import com.gtool.core.music.PitchClass
@@ -16,6 +17,7 @@ import com.gtool.core.music.TuningLibrary
 import com.gtool.core.music.Voicing
 import com.gtool.core.music.VoicingGenerator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -35,11 +37,13 @@ data class ChordsUiState(
     val useFlats: Boolean = false,
     val capo: Int = 0,
     val tuning: Tuning = TuningLibrary.STANDARD,
+    val allTunings: List<Tuning> = TuningLibrary.builtIns,
     val voicings: List<Voicing> = emptyList(),
     val voicingIndex: Int = 0,
     val style: ChordStyle = ChordStyle.DOWN_STRUM,
     val bpm: Int = 90,
     val loop: Boolean = false,
+    val arpeggioPattern: String = ArpeggioPattern.DEFAULT,
     val isPlaying: Boolean = false,
     val isLoading: Boolean = false
 ) {
@@ -62,6 +66,8 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
 
     private var lastVoicingKey: String? = null
     private var voicingJob: Job? = null
+    private var patternPersistJob: Job? = null
+    private var patternInitialized = false
 
     /** 每次停止播放自增；用于丢弃过期的自动续播与 onComplete 回调。 */
     private var playbackEpoch = 0
@@ -108,6 +114,32 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
         maybeRecompute(resetIndex = true, autoPlay = wasPlaying)
         viewModelScope.launch {
             repository.updateSettings { settings -> settings.copy(capo = safe) }
+        }
+    }
+
+    /** 切换调弦：指板、组成音位置与推荐指法都会按新调弦重算。 */
+    fun setTuning(tuningId: String) {
+        val current = _uiState.value
+        if (current.tuning.id == tuningId) return
+        val target = current.allTunings.firstOrNull { it.id == tuningId } ?: return
+        val wasPlaying = current.isPlaying
+        stopPlayback()
+        _uiState.value = _uiState.value.copy(tuning = target)
+        maybeRecompute(resetIndex = true, autoPlay = wasPlaying)
+        viewModelScope.launch { repository.setActiveTuning(tuningId) }
+    }
+
+    /** 自定义分解拨弦顺序；输入时即时生效，350 ms 防抖后持久化。 */
+    fun setArpeggioPattern(raw: String) {
+        val sanitized = ArpeggioPattern.sanitize(raw)
+        val current = _uiState.value
+        if (current.arpeggioPattern == sanitized) return
+        _uiState.value = current.copy(arpeggioPattern = sanitized)
+        patternPersistJob?.cancel()
+        patternPersistJob = viewModelScope.launch {
+            delay(350)
+            val value = ArpeggioPattern.normalize(_uiState.value.arpeggioPattern)
+            repository.updateSettings { it.copy(arpeggioPattern = value) }
         }
     }
 
@@ -195,8 +227,16 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
         val updated = current.copy(
             useFlats = appState.settings.useFlats,
             capo = appState.settings.capo.coerceIn(0, 7),
-            tuning = appState.activeTuning
+            tuning = appState.activeTuning,
+            allTunings = appState.allTunings,
+            // 只在首次加载时读取持久化的顺序，避免编辑过程中被旧值覆盖
+            arpeggioPattern = if (patternInitialized) {
+                current.arpeggioPattern
+            } else {
+                ArpeggioPattern.normalize(appState.settings.arpeggioPattern)
+            }
         )
+        patternInitialized = true
         if (updated != current) {
             val contextChanged = updated.tuning.id != current.tuning.id || updated.capo != current.capo
             _uiState.value = updated
@@ -271,6 +311,7 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
             style = state.style,
             bpm = state.bpm,
             loop = state.loop,
+            arpeggioPattern = ArpeggioPattern.normalize(state.arpeggioPattern),
             onPluck = { stringIndex, timeMs ->
                 pluckChannel.trySend(PluckEvent(stringIndex, timeMs))
             },

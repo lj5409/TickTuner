@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.util.Log
+import com.gtool.core.music.ArpeggioPattern
 import com.gtool.core.music.Tuning
 import com.gtool.core.music.Voicing
 import java.util.ArrayDeque
@@ -22,14 +23,14 @@ import kotlin.random.Random
 enum class ChordStyle(val label: String) {
     DOWN_STRUM("下扫"),
     UP_STRUM("上扫"),
-    ARPEGGIO_53231323("分解")
+    ARPEGGIO("分解")
 }
 
 /**
  * 和弦播放器：48 kHz 单声道 Float，低延迟 AudioTrack 流式混音。
  *
  * - 扫弦：低音弦 → 高音弦（上扫反向），每根弦间隔 30 ms。
- * - 分解：标准 53231323（5-3-2-3-1-3-2-3），每个音为八分音符。
+ * - 分解：按自定义弦序（默认 53231323），每步一个八分音符。
  * - 事件按采样点调度；onPluck 的 timeMs 取自播放头的实际时间轴，回调在主线程触发。
  * - [play] 会自动停止上一次播放；[stop] 可随时停止；[release] 释放 AudioTrack 与音频焦点。
  *
@@ -76,6 +77,7 @@ class ChordPlayer(
      * @param style 扫弦/分解节奏型。
      * @param bpm 速度 60–120（超出范围会限制到 30–240）。
      * @param loop 是否循环；循环时每个 4/4 小节重复一次。
+     * @param arpeggioPattern 分解时的拨弦顺序（弦号 1–6），默认 53231323。
      * @param onPluck 拨弦回调（主线程），timeMs 为该音在本次播放中的实际开始时间。
      * @param onComplete 非循环播放自然结束时的回调（主线程）。
      */
@@ -86,6 +88,7 @@ class ChordPlayer(
         style: ChordStyle = ChordStyle.DOWN_STRUM,
         bpm: Int = 90,
         loop: Boolean = false,
+        arpeggioPattern: String = ArpeggioPattern.DEFAULT,
         onPluck: (stringIndex: Int, timeMs: Long) -> Unit,
         onComplete: (() -> Unit)? = null
     ) {
@@ -104,7 +107,8 @@ class ChordPlayer(
             capo = capo.coerceIn(0, 12),
             style = style,
             bpm = bpm.coerceIn(30, 240),
-            loop = loop
+            loop = loop,
+            arpeggioPattern = ArpeggioPattern.normalize(arpeggioPattern)
         )
         Thread({
             runPlayback(id, config, onPluck)
@@ -221,14 +225,18 @@ class ChordPlayer(
 
             val sampleRate = GuitarSynth.SAMPLE_RATE
             val beatSamples = (sampleRate * 60.0 / config.bpm).toLong().coerceAtLeast(1L)
-            val cycleSamples = beatSamples * 4
+            val arpeggioStep = (beatSamples / 2).coerceAtLeast(1L)
+            val cycleSamples = if (config.style == ChordStyle.ARPEGGIO) {
+                arpeggioStep * config.arpeggioPattern.length
+            } else {
+                beatSamples * 4
+            }
             val tailSamples = (sampleRate * TAIL_SECONDS).toLong()
             val totalSamples = if (config.loop) Long.MAX_VALUE else cycleSamples + tailSamples
 
             val strumInterval = (sampleRate * 0.030).toLong()
             val random = Random(System.nanoTime())
             val order = if (config.style == ChordStyle.UP_STRUM) sounded.reversed() else sounded
-            val arpeggioPattern = intArrayOf(5, 3, 2, 3, 1, 3, 2, 3)
 
             fun nearestSounded(target: Int): Int {
                 if (target in 0 until stringCount && frets[target] >= 0) return target
@@ -243,12 +251,12 @@ class ChordPlayer(
                 return sounded.first()
             }
 
-            val arpeggioOrder = arpeggioPattern.map { number ->
-                nearestSounded(stringCount - number)
-            }
+            // 弦号 → 指法下标；闷音弦用最近的发声弦替代
+            val arpeggioOrder = ArpeggioPattern.indicesFor(config.arpeggioPattern, stringCount)
+                .map { index -> nearestSounded(index) }
 
             fun velocityFor(indexInPattern: Int): Float {
-                val base = if (config.style == ChordStyle.ARPEGGIO_53231323) 0.70f else 0.76f
+                val base = if (config.style == ChordStyle.ARPEGGIO) 0.70f else 0.76f
                 val accent = if (indexInPattern == 0) 0.10f else 0f
                 val jitter = (random.nextFloat() - 0.5f) * 0.16f
                 return (base + accent + jitter).coerceIn(0.35f, 1f)
@@ -261,8 +269,8 @@ class ChordPlayer(
 
             fun scheduleCycle(cycleIndex: Long) {
                 val cycleStart = cycleIndex * cycleSamples
-                if (config.style == ChordStyle.ARPEGGIO_53231323) {
-                    val step = (beatSamples / 2).coerceAtLeast(1L)
+                if (config.style == ChordStyle.ARPEGGIO) {
+                    val step = arpeggioStep
                     arpeggioOrder.forEachIndexed { position, stringIndex ->
                         val sample = cycleStart + position * step
                         val event = ScheduledPluck(
@@ -521,7 +529,8 @@ class ChordPlayer(
         val capo: Int,
         val style: ChordStyle,
         val bpm: Int,
-        val loop: Boolean
+        val loop: Boolean,
+        val arpeggioPattern: String
     )
 
     private data class ScheduledPluck(
