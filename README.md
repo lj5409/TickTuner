@@ -12,6 +12,11 @@
 
 ---
 
+## 界面预览
+
+| 调音器 | 节拍器 | 和弦 |
+|---|---|---|
+| <img src="docs/screenshots/tuner.png" width="250" /> | <img src="docs/screenshots/metronome.png" width="250" /> | <img src="docs/screenshots/chords.png" width="250" /> |
 ## 功能
 
 ### 调音器
@@ -147,6 +152,7 @@ app/src/main/java/com/gtool/
 | [架构约定](docs/架构约定.md) | 模块边界与共享 API |
 | [进度台账](docs/进度.md) | 当前状态、构建环境、暂停/恢复步骤 |
 | [测试清单](docs/测试清单.md) | 真机验收项 |
+| [调试与预览](docs/调试与预览.md) | 模拟器、截图、日志、真机调试 |
 
 ## 隐私
 
