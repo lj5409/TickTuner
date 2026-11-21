@@ -1,8 +1,8 @@
 # GTool 构建工具链安装（幂等、可重复执行）
-# 默认安装到 %USERPROFILE%\.gtool-tools（不在 OneDrive 内，不会被同步）
+# 默认安装到 %USERPROFILE%\.android-dev（不在 OneDrive 内，不会被同步）
 # 用法: powershell -ExecutionPolicy Bypass -File scripts/setup-toolchain.ps1
 param(
-    [string]$Root = (Join-Path $env:USERPROFILE ".gtool-tools"),
+    [string]$Root = (Join-Path $env:USERPROFILE ".android-dev"),
     [switch]$Force
 )
 

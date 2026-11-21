@@ -90,7 +90,7 @@ app/src/main/java/com/gtool/
 需要 Windows + PowerShell 7（`pwsh`）。首次构建会自动下载 JDK 21、Android SDK 36、Gradle：
 
 ```powershell
-# 1. 安装便携工具链（约 460 MB，装到 %USERPROFILE%\.gtool-tools）
+# 1. 安装便携工具链（约 460 MB，装到 %USERPROFILE%\.android-dev）
 & ".\scripts\setup-toolchain.ps1"
 
 # 2. 构建 debug APK

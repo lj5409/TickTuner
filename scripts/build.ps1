@@ -6,7 +6,7 @@
 param(
     [ValidateSet("debug", "release")] [string]$Variant = "debug",
     [string[]]$Tasks = @(),
-    [string]$Root = (Join-Path $env:USERPROFILE ".gtool-tools")
+    [string]$Root = (Join-Path $env:USERPROFILE ".android-dev")
 )
 
 $ErrorActionPreference = "Stop"

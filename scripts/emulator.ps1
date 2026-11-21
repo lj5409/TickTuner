@@ -21,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Join-Path $env:USERPROFILE ".gtool-tools"
+$Root = Join-Path $env:USERPROFILE ".android-dev"
 $Adb = Join-Path $Root "sdk\platform-tools\adb.exe"
 $Emulator = Join-Path $Root "sdk\emulator\emulator.exe"
 $Serial = "emulator-5554"
