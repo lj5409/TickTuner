@@ -27,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -463,7 +464,8 @@ private fun TimeSignatureRow(
                 selected = beatsPerBar == option.beats && beatUnit == option.unit,
                 onClick = { onSelect(option.beats, option.unit) },
                 label = { Text(option.label, fontSize = 13.sp) },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                colors = metronomeChipColors()
             )
         }
     }
@@ -482,7 +484,8 @@ private fun SubdivisionRow(subdivision: Int, onSelect: (Int) -> Unit) {
                 selected = subdivision == value,
                 onClick = { onSelect(value) },
                 label = { Text(if (value == 1) "1" else "$value", fontSize = 13.sp) },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                colors = metronomeChipColors()
             )
         }
     }
@@ -557,7 +560,8 @@ private fun ModeRow(
                 selected = selected,
                 onClick = { onToggle(mode, !selected) },
                 label = { Text(label, fontSize = 12.sp) },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                colors = metronomeChipColors()
             )
         }
     }
@@ -634,7 +638,8 @@ private fun SettingsPanel(
                         FilterChip(
                             selected = settings.flashStyle == "pulse",
                             onClick = { vm.setFlashStyle("pulse") },
-                            label = { Text("柔和脉冲", fontSize = 12.sp) }
+                            label = { Text("柔和脉冲", fontSize = 12.sp) },
+                            colors = metronomeChipColors()
                         )
                         FilterChip(
                             selected = settings.flashStyle == "flash",
@@ -645,7 +650,8 @@ private fun SettingsPanel(
                                     vm.setFlashStyle("flash")
                                 }
                             },
-                            label = { Text("强闪", fontSize = 12.sp) }
+                            label = { Text("强闪", fontSize = 12.sp) },
+                            colors = metronomeChipColors()
                         )
                     }
 
@@ -906,6 +912,14 @@ private fun SafetyBanner(
         }
     }
 }
+
+@Composable
+private fun metronomeChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = Surface2,
+    labelColor = TextMain,
+    selectedContainerColor = Accent,
+    selectedLabelColor = Color(0xFF04211A)
+)
 
 
 

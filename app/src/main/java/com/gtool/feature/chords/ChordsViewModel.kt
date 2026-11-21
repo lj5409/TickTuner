@@ -34,6 +34,7 @@ data class PluckEvent(val stringIndex: Int, val timeMs: Long)
 data class ChordsUiState(
     val root: PitchClass = PitchClass.C,
     val quality: ChordQuality = ChordQuality.MAJOR,
+    val a4: Double = 440.0,
     val useFlats: Boolean = false,
     val capo: Int = 0,
     val tuning: Tuning = TuningLibrary.STANDARD,
@@ -129,12 +130,15 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch { repository.setActiveTuning(tuningId) }
     }
 
-    /** 自定义分解拨弦顺序；输入时即时生效，350 ms 防抖后持久化。 */
+    /** 自定义分解拨弦顺序；输入时即时生效（播放中自动切换新顺序），350 ms 防抖后持久化。 */
     fun setArpeggioPattern(raw: String) {
         val sanitized = ArpeggioPattern.sanitize(raw)
         val current = _uiState.value
         if (current.arpeggioPattern == sanitized) return
-        _uiState.value = current.copy(arpeggioPattern = sanitized)
+        val restartPlayback = current.isPlaying && current.style == ChordStyle.ARPEGGIO
+        if (restartPlayback) stopPlayback()
+        _uiState.value = _uiState.value.copy(arpeggioPattern = sanitized)
+        if (restartPlayback) startPlayback()
         patternPersistJob?.cancel()
         patternPersistJob = viewModelScope.launch {
             delay(350)
@@ -225,6 +229,7 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
     private fun applyRepositoryState(appState: AppState) {
         val current = _uiState.value
         val updated = current.copy(
+            a4 = appState.settings.a4,
             useFlats = appState.settings.useFlats,
             capo = appState.settings.capo.coerceIn(0, 7),
             tuning = appState.activeTuning,
@@ -238,9 +243,11 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
         )
         patternInitialized = true
         if (updated != current) {
-            val contextChanged = updated.tuning.id != current.tuning.id || updated.capo != current.capo
+            val contextChanged = updated.tuning.id != current.tuning.id ||
+                updated.tuning.strings != current.tuning.strings ||
+                updated.capo != current.capo
             _uiState.value = updated
-            // 外部改调弦/变调夹才打断；自己写回设置时 capo 已相同，不会触发
+            // 外部改调弦（含自定义调弦改弦音）/变调夹才打断；自己写回设置时 capo 已相同，不会触发
             if (contextChanged) stopPlayback()
         }
         maybeRecompute(resetIndex = true)
@@ -338,6 +345,8 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun voicingKey(state: ChordsUiState): String =
-        "${state.root.semitone}-${state.quality.id}-${state.tuning.id}-${state.capo}"
+    private fun voicingKey(state: ChordsUiState): String {
+        val pitches = state.tuning.strings.joinToString(",") { it.midi.toString() }
+        return "${state.root.semitone}-${state.quality.id}-${state.tuning.id}:$pitches-${state.capo}"
+    }
 }

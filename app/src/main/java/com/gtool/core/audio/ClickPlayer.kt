@@ -272,6 +272,7 @@ class ClickPlayer(context: Context) {
                 if (current != applied) {
                     // 细分改变时从下一个拍点重新开始，避免出现在旧细分的中间位置。
                     if (current.subdivision != applied.subdivision) subIndex = 0
+                    if (!current.soundEnabled && applied.soundEnabled) carry.fill(0f)
                     applied = current
                     interval = intervalSamplesFor(applied)
                 }
@@ -304,7 +305,7 @@ class ClickPlayer(context: Context) {
                 while (nextEventSample < blockEnd.toDouble()) {
                     val samplePos = maxOf(nextEventSample.toLong(), blockStart)
                     val level = applied.levelAt(beatIndex)
-                    if (level != 0) {
+                    if (applied.soundEnabled && level != 0) {
                         val wave = when {
                             subIndex > 0 -> subdivisionWave
                             level >= 2 -> accentWave

@@ -1,4 +1,4 @@
-# 启动 / 操作 Android 模拟器（GTool 预览与调试用）
+﻿# 启动 / 操作 Android 模拟器（GTool 预览与调试用）
 #
 # 用法:
 #   pwsh scripts/emulator.ps1 -Action start
@@ -33,7 +33,8 @@ $Repo = Split-Path -Parent $PSScriptRoot
 function Wait-Boot([int]$TimeoutSeconds = 180) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        $boot = (& $Adb -s $Serial shell getprop sys.boot_completed 2>$null).Trim()
+        $raw = & $Adb -s $Serial shell getprop sys.boot_completed 2>$null
+        $boot = if ($null -ne $raw) { ("$raw").Trim() } else { "" }
         if ($boot -eq "1") { return $true }
         Start-Sleep -Seconds 3
     }
@@ -93,7 +94,8 @@ switch ($Action) {
         Write-Host "已保存 docs\screenshots\$Name.png"
     }
     "logcat" {
-        $pidValue = (& $Adb -s $Serial shell pidof com.gtool).Trim()
+        $rawPid = & $Adb -s $Serial shell pidof com.gtool 2>$null
+        $pidValue = if ($null -ne $rawPid) { ("$rawPid").Trim() } else { "" }
         if ($pidValue) {
             & $Adb -s $Serial logcat -d --pid=$pidValue -v time
         } else {

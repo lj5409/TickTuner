@@ -82,7 +82,7 @@ class AudioCapture(
     }
 
     /**
-     * 停止采集并释放 AudioRecord。会短暂等待采集线程退出（最多 200 ms）。
+     * 停止采集并释放 AudioRecord。由采集线程在 finally 中释放，避免与 read() 并发竞争。
      */
     @Synchronized
     fun stop() {
@@ -99,7 +99,9 @@ class AudioCapture(
         if (thread != null && thread !== Thread.currentThread()) {
             runCatching { thread.join(STOP_JOIN_TIMEOUT_MS) }
         }
-        if (active != null) runCatching { active.release() }
+        if (active != null && (thread == null || !thread.isAlive)) {
+            runCatching { active.release() }
+        }
         pendingWindow.set(null)
     }
 
@@ -177,6 +179,12 @@ class AudioCapture(
             }
         } catch (t: Throwable) {
             if (running) reportError("麦克风异常：${t.message ?: t.javaClass.simpleName}")
+        } finally {
+            runCatching {
+                if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) recorder.stop()
+            }
+            runCatching { recorder.release() }
+            if (record === recorder) record = null
         }
     }
 

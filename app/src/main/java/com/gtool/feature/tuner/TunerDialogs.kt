@@ -27,6 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -391,7 +393,7 @@ fun StringNoteDialog(
     onDismiss: () -> Unit
 ) {
     var pitchClass by remember(note) { mutableStateOf(note.pitchClass) }
-    var octave by remember(note) { mutableStateOf(note.octave) }
+    var octave by remember(note) { mutableIntStateOf(note.octave) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -557,7 +559,7 @@ fun A4Dialog(
     onConfirm: (Double) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var value by remember { mutableStateOf(a4.toFloat()) }
+    var value by remember { mutableFloatStateOf(a4.toFloat()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

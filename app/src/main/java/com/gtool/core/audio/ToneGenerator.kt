@@ -4,6 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.PI
 import kotlin.math.max
@@ -50,17 +51,25 @@ class ToneGenerator(private val sampleRate: Int = DEFAULT_SAMPLE_RATE) {
         playToken.incrementAndGet()
     }
 
-    /** 释放播放线程与 AudioTrack。 */
+    /** 释放播放线程与 AudioTrack（由播放线程自行 release，避免与 write 并发竞争）。 */
     fun release() {
         playToken.incrementAndGet()
         val track = activeTrack
-        activeTrack = null
         if (track != null) {
             runCatching { track.pause() }
             runCatching { track.flush() }
-            runCatching { track.release() }
         }
-        executor.shutdownNow()
+        executor.shutdown()
+        val terminated = runCatching {
+            executor.awaitTermination(RELEASE_WAIT_MS, TimeUnit.MILLISECONDS)
+        }.getOrDefault(false)
+        if (!terminated) {
+            executor.shutdownNow()
+        } else {
+            val remaining = activeTrack
+            activeTrack = null
+            if (remaining != null) runCatching { remaining.release() }
+        }
     }
 
     private fun render(token: Int, frequency: Double, durationMs: Int, volume: Float) {
@@ -168,6 +177,7 @@ class ToneGenerator(private val sampleRate: Int = DEFAULT_SAMPLE_RATE) {
         private const val FADE_IN_SECONDS = 0.03
         private const val FADE_OUT_SECONDS = 0.15
         private const val TAIL_WAIT_MS = 120L
+        private const val RELEASE_WAIT_MS = 250L
         private const val HARMONIC_2 = 0.30
         private const val HARMONIC_3 = 0.15
     }

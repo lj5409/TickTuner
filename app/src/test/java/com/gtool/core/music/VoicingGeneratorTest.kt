@@ -181,4 +181,79 @@ class VoicingGeneratorTest {
         assertEquals(216 * 5, generated)
         assertTrue("12 根音 × 18 类型全量生成耗时 ${elapsedMs}ms，应 <2000ms", elapsedMs < 2000)
     }
+
+    @Test
+    fun fMajorPrefersStandardBarreWithTextbookFingers() {
+        val chord = Chord(PitchClass.F, ChordQuality.MAJOR)
+        val voicings = VoicingGenerator.generate(chord, standard, capo = 0, limit = 5)
+        assertTrue("F 大三应有指法", voicings.isNotEmpty())
+        val first = voicings.first()
+        assertEquals(listOf(1, 3, 3, 2, 1, 1), first.frets)
+        assertEquals(listOf(1, 3, 4, 2, 1, 1), first.fingers)
+    }
+
+    @Test
+    fun barreChordsNeverAssignSameNonBarreFingerToMultipleStrings() {
+        for (root in PitchClass.entries) {
+            for (quality in ChordQuality.entries) {
+                val chord = Chord(root, quality)
+                val voicings = VoicingGenerator.generate(chord, standard, capo = 0, limit = 5)
+                for (voicing in voicings) {
+                    val counts = HashMap<Int, Int>()
+                    voicing.fingers.forEachIndexed { index, finger ->
+                        if (voicing.frets[index] > 0 && finger > 0) {
+                            counts[finger] = (counts[finger] ?: 0) + 1
+                        }
+                    }
+                    for (finger in 2..4) {
+                        val used = counts[finger] ?: 0
+                        assertTrue(
+                            "${chord.displayName} ${voicing.frets} 手指 ${voicing.fingers} 不应把 $finger 指重复分配给多根弦",
+                            used <= 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun cMinorAtCapoTwoHasDistinctRingAndPinkyFingers() {
+        val chord = Chord(PitchClass.C, ChordQuality.MINOR)
+        val voicings = VoicingGenerator.generate(chord, standard, capo = 2, limit = 5)
+        val amShape = voicings.firstOrNull { it.frets == listOf(-1, 1, 3, 3, 2, 1) }
+        assertNotNull("Cm Capo 2 应包含 Am 型横按 [-1, 1, 3, 3, 2, 1]，实际=${voicings.map { it.frets }}", amShape)
+        assertEquals(listOf(0, 1, 3, 4, 2, 1), amShape!!.fingers)
+    }
+
+    @Test
+    fun cacheInvalidatesWhenSameIdCustomTuningChangesStrings() {
+        val chord = Chord(PitchClass.D, ChordQuality.MAJOR)
+        val v1 = Tuning(
+            id = "custom_same_id",
+            name = "Custom",
+            strings = standard.strings,
+            builtIn = false
+        )
+        val v2 = v1.copy(strings = TuningLibrary.DROP_D.strings)
+
+        val firstResult = VoicingGenerator.generate(chord, v1, capo = 0, limit = 5)
+        // 不手动清空缓存，直接用同 id 但不同弦音的调弦生成
+        val secondResult = VoicingGenerator.generate(chord, v2, capo = 0, limit = 5)
+
+        assertTrue(firstResult.isNotEmpty())
+        assertTrue(secondResult.isNotEmpty())
+        // 验证第二批指法的所有发声音高在 Drop D 下都属于 D 大三和弦
+        for (voicing in secondResult) {
+            val pcs = voicing.soundedStrings.map { i ->
+                PitchClass.of(v2.strings[i].midi + voicing.frets[i])
+            }
+            assertTrue("Drop D 缓存应重算，实际音高=$pcs, frets=${voicing.frets}", pcs.all { chord.contains(it) })
+        }
+        // Drop D 下 D 大三应包含低音 6 弦空弦 D（frets[0] == 0）
+        assertTrue(
+            "Drop D 下 D 大三首选指法应利用 6 弦空弦 D，实际=${secondResult.map { it.frets }}",
+            secondResult.any { it.frets[0] == 0 }
+        )
+    }
 }

@@ -25,7 +25,7 @@ data class Voicing(
     /** 指法跨度（品）。 */
     val span: Int get() = (maxPressed - minPressed).coerceAtLeast(0)
 
-    val isOpenPosition: Boolean get() = fretAt(0).let { true } && frets.any { it == 0 }
+    val isOpenPosition: Boolean get() = frets.any { it == 0 }
 
     fun fretAt(stringIndex: Int): Int = frets.getOrElse(stringIndex) { -1 }
 

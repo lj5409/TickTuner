@@ -73,6 +73,8 @@ internal fun tuningStatusText(state: TunerUiState): String {
     if (state.detectedNote == null || cents == null) return "—"
     return when {
         abs(cents) <= TunerViewModel.IN_TUNE_CENTS -> "准"
+        cents >= 600.0 -> "高过八度 · 大幅放松"
+        cents <= -600.0 -> "低过八度 · 大幅拧紧"
         cents > 0 -> "偏高 · 松一点"
         else -> "偏低 · 紧一点"
     }
@@ -84,8 +86,8 @@ internal fun tuningStatusText(state: TunerUiState): String {
 fun TunerChip(
     text: String,
     onClick: () -> Unit,
-    selected: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selected: Boolean = false
 ) {
     Surface(
         shape = RoundedCornerShape(50),

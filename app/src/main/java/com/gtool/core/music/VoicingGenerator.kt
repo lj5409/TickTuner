@@ -44,7 +44,12 @@ object VoicingGenerator {
         val key = buildString {
             append(chord.root.semitone).append('-')
             append(chord.quality.id).append('-')
-            append(tuning.id).append('-')
+            append(tuning.id).append(':')
+            tuning.strings.forEachIndexed { idx, note ->
+                if (idx > 0) append(',')
+                append(note.midi)
+            }
+            append('-')
             append(safeCapo).append('-')
             append(safeMaxFret)
         }
@@ -354,6 +359,26 @@ object VoicingGenerator {
         if (openCount == 0 && minPressed >= 5) score -= 10
         if (sounded == n && mutedCount == 0) score += 5
 
+        // 惩罚非横按时用 4 指同时把最低按品劈开在相隔 3 根以上琴弦上的扭曲手型（如 1-0-3-2-1-x）
+        val usedBarre = (0 until n).count { fingers[it] == 1 && frets[it] > 0 } >= 2
+        if (!usedBarre && minPressed > 0) {
+            var pressed = 0
+            var firstLow = -1
+            var lastLow = -1
+            var lowCount = 0
+            for (i in 0 until n) {
+                if (frets[i] > 0) pressed++
+                if (frets[i] == minPressed) {
+                    if (firstLow < 0) firstLow = i
+                    lastLow = i
+                    lowCount++
+                }
+            }
+            if (pressed == 4 && lowCount >= 2 && lastLow - firstLow >= 3) {
+                score -= 12
+            }
+        }
+
         return Voicing(
             frets = frets.toList(),
             fingers = fingers.toList(),
@@ -365,8 +390,8 @@ object VoicingGenerator {
     /**
      * 计算 1–4 的手指编号（横按统一用 1 指，0 表示不按）。
      *
-     * 只有在「最低按品出现在 ≥2 根弦、跨度不超过 4、中间没有空弦/闷音」时才允许横按；
-     * 两根弦共用最低品且完全可以用独立手指按下时，优先使用独立手指（更符合常见指法）。
+     * 只有在「最低按品出现在 ≥2 根弦、跨度不超过 3、中间没有空弦/闷音、其余按弦数 ≤3」时才允许横按；
+     * 横按之外每根按弦分配独立手指（2、3、4），不把同一高品位的多根弦错误归到同一根手指。
      */
     private fun assignFingers(frets: IntArray): IntArray? {
         val n = frets.size
@@ -375,7 +400,6 @@ object VoicingGenerator {
         var minFret = Int.MAX_VALUE
         var maxFret = Int.MIN_VALUE
         val lowestStrings = ArrayList<Int>(n)
-        val higherFrets = sortedSetOf<Int>()
 
         for (i in 0 until n) {
             val fret = frets[i]
@@ -387,41 +411,46 @@ object VoicingGenerator {
         if (pressedCount == 0) return fingers
 
         for (i in 0 until n) {
-            val fret = frets[i]
-            if (fret == minFret) lowestStrings.add(i)
-            else if (fret > minFret) higherFrets.add(fret)
+            if (frets[i] == minFret) lowestStrings.add(i)
         }
 
         var barreGapOk = true
-        if (lowestStrings.isNotEmpty()) {
+        if (lowestStrings.size >= 2) {
             val first = lowestStrings.first()
             val last = lowestStrings.last()
             for (i in first + 1 until last) {
-                // 横按手指会压到中间弦：中间必须是更高品位（被其他手指截停），不能是空弦或闷音。
-                if (frets[i] <= minFret) {
+                // 横按手指会压到中间弦：中间弦必须在横按品或更高品位（被其他手指截停），不能是空弦或闷音。
+                if (frets[i] < minFret) {
                     barreGapOk = false
                     break
                 }
             }
         }
+
+        val higherStrings = (0 until n)
+            .filter { frets[it] > minFret }
+            .sortedWith(compareBy({ frets[it] }, { it }))
+
         val canBarre = lowestStrings.size >= 2 &&
             maxFret - minFret <= 3 &&
-            higherFrets.size <= 3 &&
+            higherStrings.size <= 3 &&
             barreGapOk
 
+        val adjacentMiniBarre = canBarre &&
+            lowestStrings.size == 2 &&
+            lowestStrings.last() - lowestStrings.first() == 1 &&
+            higherStrings.isNotEmpty()
+
         val useBarre = when {
-            canBarre && (pressedCount > 4 || lowestStrings.size >= 3) -> true
-            pressedCount > 4 -> if (canBarre) true else return null
+            canBarre && (pressedCount > 4 || (lowestStrings.size >= 3 && (higherStrings.isNotEmpty() || pressedCount >= 4)) || adjacentMiniBarre) -> true
+            pressedCount > 4 -> return null
             else -> false
         }
 
         if (useBarre) {
-            if (1 + higherFrets.size > 4) return null
             for (i in lowestStrings) fingers[i] = 1
-            higherFrets.forEachIndexed { index, fret ->
-                for (i in 0 until n) {
-                    if (frets[i] == fret) fingers[i] = index + 2
-                }
+            higherStrings.forEachIndexed { index, stringIndex ->
+                fingers[stringIndex] = index + 2
             }
             return fingers
         }

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -263,7 +264,7 @@ private fun ToneCard(state: ChordsUiState) {
         ) {
             state.chord.tones.forEachIndexed { index, tone ->
                 val isRoot = tone.pitchClass == state.chord.root
-                val frequency = notes.getOrNull(index)?.frequency() ?: 0.0
+                val frequency = notes.getOrNull(index)?.frequency(state.a4) ?: 0.0
                 Surface(
                     color = Surface2,
                     shape = RoundedCornerShape(12.dp)
@@ -433,12 +434,19 @@ private fun VoicingCard(
 
 @Composable
 private fun TuningCard(state: ChordsUiState, onSelect: (String) -> Unit) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.tuning.id, state.allTunings) {
+        val selectedIndex = state.allTunings.indexOfFirst { it.id == state.tuning.id }
+        if (selectedIndex >= 0) {
+            listState.animateScrollToItem(selectedIndex)
+        }
+    }
     SectionCard {
         SectionTitle(
             title = "调弦",
             trailing = state.tuning.joinedNames(state.useFlats)
         )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.allTunings, key = { it.id }) { tuning ->
                 FilterChip(
                     selected = tuning.id == state.tuning.id,

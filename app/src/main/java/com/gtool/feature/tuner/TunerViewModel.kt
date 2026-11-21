@@ -15,6 +15,7 @@ import com.gtool.core.audio.ToneGenerator
 import com.gtool.core.music.Note
 import com.gtool.core.music.Tuning
 import com.gtool.core.music.TuningLibrary
+import com.gtool.core.music.VoicingGenerator
 import com.gtool.core.music.centsFrom
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -312,7 +313,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
             val matched = nearestStringIndex(smoothed, current.tuning, current.a4)
             val targetIndex = current.lockedIndex ?: matched
             val target = targetIndex?.let { current.tuning.strings.getOrNull(it) }
-            val cents = target?.let { foldCents(centsFrom(smoothed, it.frequency(current.a4))) }
+            val cents = target?.let { centsFrom(smoothed, it.frequency(current.a4)) }
             current.copy(
                 frequency = smoothed,
                 clarity = result.confidence,
@@ -347,7 +348,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 把检测结果与目标弦一起写回状态；自动匹配会考虑八度（音分折叠到 ±600）。
+     * 把检测结果与目标弦一起写回状态；保留真实音分偏差（不跨八度折叠，避免差八度误判为「准」）。
      */
     private fun withTarget(state: TunerUiState, lockedIndex: Int?): TunerUiState {
         val frequency = state.frequency
@@ -355,7 +356,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         val targetIndex = lockedIndex ?: matched
         val target = targetIndex?.let { state.tuning.strings.getOrNull(it) }
         val cents = if (frequency != null && target != null) {
-            foldCents(centsFrom(frequency, target.frequency(state.a4)))
+            centsFrom(frequency, target.frequency(state.a4))
         } else {
             null
         }
@@ -372,24 +373,15 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     private fun nearestStringIndex(frequency: Double, tuning: Tuning, a4: Double): Int? {
         if (tuning.strings.isEmpty()) return null
         var bestIndex = 0
-        var bestScore = Double.MAX_VALUE
+        var bestDistance = Double.MAX_VALUE
         tuning.strings.forEachIndexed { index, note ->
-            val raw = centsFrom(frequency, note.frequency(a4))
-            val folded = foldCents(raw)
-            val score = minOf(abs(raw), abs(folded) + OCTAVE_FOLD_PENALTY_CENTS)
-            if (score < bestScore) {
-                bestScore = score
+            val distance = abs(centsFrom(frequency, note.frequency(a4)))
+            if (distance < bestDistance) {
+                bestDistance = distance
                 bestIndex = index
             }
         }
         return bestIndex
-    }
-
-    private fun foldCents(cents: Double): Double {
-        var value = cents
-        while (value > 600.0) value -= 1200.0
-        while (value < -600.0) value += 1200.0
-        return value
     }
 
     // ------------------------------------------------------------------ 调弦
@@ -438,6 +430,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
             val lock = current.lockedIndex?.takeIf { it in clean.strings.indices }
             withTarget(current.copy(tuning = active, customTunings = customs, allTunings = all), lock)
         }
+        VoicingGenerator.clearCache()
         viewModelScope.launch { repository.upsertTuning(clean) }
     }
 
@@ -453,6 +446,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 null
             )
         }
+        VoicingGenerator.clearCache()
         viewModelScope.launch {
             if (wasActive) repository.setActiveTuning(TuningLibrary.STANDARD.id)
             repository.deleteTuning(tuning.id)
@@ -528,7 +522,6 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         private const val EMA_ALPHA = 0.35
         private const val CLEAR_AFTER_MS = 400L
         private const val RESET_AFTER_MS = 700L
-        private const val OCTAVE_FOLD_PENALTY_CENTS = 60.0
     }
 }
 

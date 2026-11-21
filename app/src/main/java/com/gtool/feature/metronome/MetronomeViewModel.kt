@@ -3,6 +3,7 @@ package com.gtool.feature.metronome
 import android.app.Application
 import android.content.Context
 import android.os.SystemClock
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gtool.GtoolApplication
@@ -390,17 +391,17 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
         val next = value.coerceIn(0f, 1f)
         _volume.value = next
         player.setVolume(next)
-        prefs.edit().putFloat(KEY_VOLUME, next).apply()
+        prefs.edit { putFloat(KEY_VOLUME, next) }
     }
 
     fun allowStrongFlash() {
         _strongFlashAck.value = true
-        prefs.edit().putBoolean(KEY_STRONG_FLASH, true).apply()
+        prefs.edit { putBoolean(KEY_STRONG_FLASH, true) }
     }
 
     fun dismissSafetyHint() {
         _safetyHintShown.value = true
-        prefs.edit().putBoolean(KEY_SAFETY_HINT, true).apply()
+        prefs.edit { putBoolean(KEY_SAFETY_HINT, true) }
     }
 
     // ------------------------------------------------------------ 内部
