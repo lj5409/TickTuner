@@ -53,6 +53,7 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
         private const val KEY_VOLUME = "volume"
         private const val KEY_STRONG_FLASH = "strong_flash_ack"
         private const val KEY_SAFETY_HINT = "safety_hint_shown"
+        private const val KEY_TAP_STAGE_HINT = "tap_stage_hint_shown"
     }
 
     private val repository = (application as GtoolApplication).repository
@@ -101,6 +102,11 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** 是否已经看过光敏安全提示（只弹一次）。 */
     val safetyHintShown: StateFlow<Boolean> = _safetyHintShown.asStateFlow()
+
+    private val _tapStageHintShown = MutableStateFlow(prefs.getBoolean(KEY_TAP_STAGE_HINT, false))
+
+    /** 是否已经看过“点击节拍条开始/暂停”的一次性提示。 */
+    val tapStageHintShown: StateFlow<Boolean> = _tapStageHintShown.asStateFlow()
 
     private val _volume = MutableStateFlow(prefs.getFloat(KEY_VOLUME, 0.9f))
 
@@ -402,6 +408,12 @@ class MetronomeViewModel(application: Application) : AndroidViewModel(applicatio
     fun dismissSafetyHint() {
         _safetyHintShown.value = true
         prefs.edit { putBoolean(KEY_SAFETY_HINT, true) }
+    }
+
+    fun dismissTapStageHint() {
+        if (_tapStageHintShown.value) return
+        _tapStageHintShown.value = true
+        prefs.edit { putBoolean(KEY_TAP_STAGE_HINT, true) }
     }
 
     // ------------------------------------------------------------ 内部

@@ -47,6 +47,10 @@ internal class BeatPulseState {
     var intensity by mutableFloatStateOf(0f)
         private set
 
+    /** 拍条视觉脉冲强度 0..1（静音拍与细分拍也有柔和反馈，不影响全屏闪拍）。 */
+    var barIntensity by mutableFloatStateOf(0f)
+        private set
+
     /** 当前拍在本小节的绝对序号（-1 = 未开始）。 */
     var activeBeat by mutableIntStateOf(-1)
         private set
@@ -76,6 +80,7 @@ internal class BeatPulseState {
     fun reset() {
         queue.clear()
         intensity = 0f
+        barIntensity = 0f
         activeBeat = -1
         activeSub = 0
         activeLevel = 0
@@ -108,6 +113,7 @@ internal class BeatPulseState {
         }
         if (!primed) {
             if (intensity != 0f) intensity = 0f
+            if (barIntensity != 0f) barIntensity = 0f
             return 0f
         }
         val elapsed = (frameNanos - pulseStartNanos) / 1_000_000_000f
@@ -126,6 +132,22 @@ internal class BeatPulseState {
         val raw = envelope * levelScale * subScale
         val value = if (raw < 0.002f) 0f else raw.coerceAtMost(1f)
         if (value != intensity) intensity = value
+
+        // 拍条视觉包络始终平滑衰减，静音拍与细分拍也提供轻量视觉反馈。
+        val barEnvelope = when {
+            elapsed < 0f -> 0f
+            elapsed < PULSE_RISE_SECONDS -> elapsed / PULSE_RISE_SECONDS
+            else -> exp(-(elapsed - PULSE_RISE_SECONDS) / 0.14f)
+        }
+        val barLevelScale = when {
+            pulseLevel >= 2 -> 1f
+            pulseLevel == 1 -> 0.85f
+            else -> 0.45f
+        }
+        val barSubScale = if (pulseSub > 0) 0.55f else 1f
+        val barRaw = barEnvelope * barLevelScale * barSubScale
+        val barVal = if (barRaw < 0.002f) 0f else barRaw.coerceAtMost(1f)
+        if (barVal != barIntensity) barIntensity = barVal
         return value
     }
 }

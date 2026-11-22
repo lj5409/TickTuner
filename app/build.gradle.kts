@@ -16,8 +16,8 @@ android {
         applicationId = "com.gtool"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.2.1"
+        versionCode = 5
+        versionName = "0.3.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -97,6 +97,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
 
     implementation("androidx.navigation:navigation-compose:2.9.3")
+    implementation("androidx.window:window:1.5.1")
     implementation("androidx.datastore:datastore-preferences:1.1.7")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

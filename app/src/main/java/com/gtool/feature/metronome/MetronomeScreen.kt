@@ -1,36 +1,23 @@
 package com.gtool.feature.metronome
 
-import android.graphics.Color as AndroidColor
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,10 +33,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -59,43 +47,30 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gtool.core.data.MetronomeSettings
 import com.gtool.core.device.TorchCapabilities
+import com.gtool.ui.AppPosture
+import com.gtool.ui.LocalWindowPosture
+import com.gtool.ui.WindowPostureState
 import com.gtool.ui.theme.Accent
 import com.gtool.ui.theme.Bg
-import com.gtool.ui.theme.Danger
 import com.gtool.ui.theme.FretWire
 import com.gtool.ui.theme.InfoBlue
-import com.gtool.ui.theme.Surface1
 import com.gtool.ui.theme.Surface2
-import com.gtool.ui.theme.Surface3
-import com.gtool.ui.theme.TextMain
 import com.gtool.ui.theme.TextMuted
 import com.gtool.ui.theme.Warm
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
-
-private val FlashColorPresets = listOf(
-    0xFF2EE6A8L,
-    0xFF4DA3FFL,
-    0xFFFFB86BL,
-    0xFFFF4D6DL,
-    0xFFB388FFL,
-    0xFFFFFFFFL
-)
-
-private data class TimeSignatureOption(val beats: Int, val unit: Int, val label: String)
-
-private val TimeSignatureOptions = listOf(
-    TimeSignatureOption(2, 4, "2/4"),
-    TimeSignatureOption(3, 4, "3/4"),
-    TimeSignatureOption(4, 4, "4/4"),
-    TimeSignatureOption(6, 8, "6/8")
-)
 
 /**
  * 节拍器页面。
  *
  * 音频时钟由 [com.gtool.core.audio.ClickPlayer] 提供；画面、闪光灯、振动
  * 都对齐 [com.gtool.core.audio.BeatEvent.nanoTime]，不使用自计时 delay。
+ *
+ * 根据 [LocalWindowPosture] 自动适配四种形态：
+ * - 竖屏（手机 / 折叠屏外屏）：首屏「拍条舞台 + BPM 控制」，下滑展开全部设置；
+ * - 横屏 / 帐篷模式：隐藏导航与设置，左侧竖直拍条 + 右侧竖向滑杆与 BPM/+/-/Tap；
+ * - 悬停桌面模式（Tabletop）：上半屏纯拍条舞台，下半屏完整调节设置；
+ * - 展开大屏（如 vivo X Fold3 Pro 内屏）：左右双栏（左主控 + 右常驻展开设置）。
  */
 @Composable
 fun MetronomeScreen() {
@@ -107,15 +82,17 @@ fun MetronomeScreen() {
     val torchState by vm.torchState.collectAsStateWithLifecycle()
     val strongFlashAck by vm.strongFlashAck.collectAsStateWithLifecycle()
     val hintShown by vm.safetyHintShown.collectAsStateWithLifecycle()
+    val tapStageHintShown by vm.tapStageHintShown.collectAsStateWithLifecycle()
     val previewBrightness by vm.previewBrightness.collectAsStateWithLifecycle()
     val previewColor by vm.previewColor.collectAsStateWithLifecycle()
     val previewTorchStrength by vm.torchStrengthPreview.collectAsStateWithLifecycle()
 
+    val postureState = LocalWindowPosture.current
     val pulse = remember { BeatPulseState() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     var message by remember { mutableStateOf<String?>(null) }
-    var showBpmInput by rememberSaveable { mutableStateOf(false) }
+    var showBpmNumpad by rememberSaveable { mutableStateOf(false) }
     var showStrongFlashConfirm by remember { mutableStateOf(false) }
     var avOffsetDraft by remember(settings.avOffsetMs) { mutableFloatStateOf(settings.avOffsetMs.toFloat()) }
 
@@ -128,6 +105,12 @@ fun MetronomeScreen() {
     }
     val effectiveBrightness = previewBrightness ?: settings.flashBrightness
     val effectiveColor = Color(previewColor ?: settings.flashColor)
+    val showTapHint = !tapStageHintShown
+
+    val onToggleStage: () -> Unit = {
+        if (showTapHint) vm.dismissTapStageHint()
+        vm.togglePlay()
+    }
 
     LaunchedEffect(vm) {
         vm.messages.collect { text -> message = text }
@@ -163,77 +146,104 @@ fun MetronomeScreen() {
         events = vm.beatEvents
     )
 
-    Box(Modifier.fillMaxSize().background(Bg)) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            MessageBanner(message)
-
-            SafetyBanner(
-                dangerous = dangerous,
-                frequency = flashFrequency,
-                effectiveStyle = effectiveStyle,
-                accentAllowed = settings.flashStyle == "flash" && effectiveStyle != "flash",
-                onAllowStrongFlash = { showStrongFlashConfirm = true }
-            )
-
-            BpmSection(
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Bg)
+    ) {
+        when (postureState.posture) {
+            AppPosture.LANDSCAPE_COMPACT -> LandscapePerformLayout(
+                settings = settings,
                 bpm = bpm,
+                playing = playing,
+                pulse = pulse,
+                showTapHint = showTapHint,
+                message = message,
+                onTogglePlay = onToggleStage,
+                onDismissTapHint = vm::dismissTapStageHint,
                 onBpmChange = { vm.setBpm(it) },
                 onBpmCommit = { vm.setBpm(it, commit = true) },
+                onNudge = vm::nudgeBpm,
                 onTap = vm::tapTempo,
-                onOpenInput = { showBpmInput = true }
+                onOpenNumpad = { showBpmNumpad = true }
             )
 
-            BeatDots(settings = settings, pulse = pulse)
-
-            TimeSignatureRow(
-                beatsPerBar = settings.beatsPerBar,
-                beatUnit = settings.beatUnit,
-                onSelect = vm::setTimeSignature
-            )
-
-            SubdivisionRow(
-                subdivision = settings.subdivision,
-                onSelect = vm::setSubdivision
-            )
-
-            TransportRow(
-                playing = playing,
-                onToggle = vm::togglePlay,
-                onNudge = vm::nudgeBpm
-            )
-
-            ModeRow(settings = settings, onToggle = vm::setMode)
-
-            if (!settings.soundEnabled) {
-                Text(
-                    text = "静音模式：屏幕 / 闪光灯 / 振动打拍，不发声",
-                    fontSize = 12.sp,
-                    color = InfoBlue
-                )
-            }
-
-            SettingsPanel(
+            AppPosture.TABLETOP -> TabletopMetronomeLayout(
+                postureState = postureState,
                 vm = vm,
                 settings = settings,
+                bpm = bpm,
+                playing = playing,
                 volume = volume,
                 torchState = torchState,
                 dangerous = dangerous,
+                flashFrequency = flashFrequency,
+                effectiveStyle = effectiveStyle,
                 strongFlashAck = strongFlashAck,
-                onRequestStrongFlash = { showStrongFlashConfirm = true },
                 brightness = effectiveBrightness,
                 previewStrength = previewTorchStrength ?: settings.torchStrength,
                 avOffsetDraft = avOffsetDraft,
                 onAvOffsetChange = { avOffsetDraft = it },
-                onAvOffsetCommit = { vm.setAvOffset(avOffsetDraft.roundToInt()) }
+                onAvOffsetCommit = { vm.setAvOffset(avOffsetDraft.roundToInt()) },
+                pulse = pulse,
+                showTapHint = showTapHint,
+                message = message,
+                onTogglePlay = onToggleStage,
+                onDismissTapHint = vm::dismissTapStageHint,
+                onOpenNumpad = { showBpmNumpad = true },
+                onRequestStrongFlash = { showStrongFlashConfirm = true }
             )
 
-            Spacer(Modifier.height(8.dp))
+            AppPosture.UNFOLDED_EXPANDED -> UnfoldedDualPaneLayout(
+                postureState = postureState,
+                vm = vm,
+                settings = settings,
+                bpm = bpm,
+                playing = playing,
+                volume = volume,
+                torchState = torchState,
+                dangerous = dangerous,
+                flashFrequency = flashFrequency,
+                effectiveStyle = effectiveStyle,
+                strongFlashAck = strongFlashAck,
+                brightness = effectiveBrightness,
+                previewStrength = previewTorchStrength ?: settings.torchStrength,
+                avOffsetDraft = avOffsetDraft,
+                onAvOffsetChange = { avOffsetDraft = it },
+                onAvOffsetCommit = { vm.setAvOffset(avOffsetDraft.roundToInt()) },
+                pulse = pulse,
+                showTapHint = showTapHint,
+                message = message,
+                onTogglePlay = onToggleStage,
+                onDismissTapHint = vm::dismissTapStageHint,
+                onOpenNumpad = { showBpmNumpad = true },
+                onRequestStrongFlash = { showStrongFlashConfirm = true }
+            )
+
+            AppPosture.PORTRAIT -> PortraitMetronomeLayout(
+                vm = vm,
+                settings = settings,
+                bpm = bpm,
+                playing = playing,
+                volume = volume,
+                torchState = torchState,
+                dangerous = dangerous,
+                flashFrequency = flashFrequency,
+                effectiveStyle = effectiveStyle,
+                strongFlashAck = strongFlashAck,
+                brightness = effectiveBrightness,
+                previewStrength = previewTorchStrength ?: settings.torchStrength,
+                avOffsetDraft = avOffsetDraft,
+                onAvOffsetChange = { avOffsetDraft = it },
+                onAvOffsetCommit = { vm.setAvOffset(avOffsetDraft.roundToInt()) },
+                pulse = pulse,
+                showTapHint = showTapHint,
+                message = message,
+                onTogglePlay = onToggleStage,
+                onDismissTapHint = vm::dismissTapStageHint,
+                onOpenNumpad = { showBpmNumpad = true },
+                onRequestStrongFlash = { showStrongFlashConfirm = true }
+            )
         }
 
         // 覆盖层不消费触控事件，仅改变颜色与亮度。
@@ -244,29 +254,14 @@ fun MetronomeScreen() {
         )
     }
 
-    if (showBpmInput) {
-        var text by remember { mutableStateOf(bpm.toString()) }
-        AlertDialog(
-            onDismissRequest = { showBpmInput = false },
-            title = { Text("输入 BPM") },
-            text = {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { input -> text = input.filter { it.isDigit() }.take(3) },
-                    singleLine = true,
-                    label = { Text("30 – 300") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
+    if (showBpmNumpad) {
+        BpmNumpadDialog(
+            initialBpm = bpm,
+            onConfirm = { target ->
+                vm.setBpm(target, commit = true)
+                showBpmNumpad = false
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    text.toIntOrNull()?.let { vm.setBpm(it, commit = true) }
-                    showBpmInput = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBpmInput = false }) { Text("取消") }
-            }
+            onDismiss = { showBpmNumpad = false }
         )
     }
 
@@ -314,536 +309,457 @@ fun MetronomeScreen() {
     }
 }
 
-// ------------------------------------------------------------------ 顶部 BPM
+// ------------------------------------------------------------------ 1. 竖屏布局（首屏主控 + 下滑全部设置）
 
 @Composable
-private fun BpmSection(
+private fun PortraitMetronomeLayout(
+    vm: MetronomeViewModel,
+    settings: MetronomeSettings,
     bpm: Int,
-    onBpmChange: (Int) -> Unit,
-    onBpmCommit: (Int) -> Unit,
-    onTap: () -> Unit,
-    onOpenInput: () -> Unit
+    playing: Boolean,
+    volume: Float,
+    torchState: TorchCapabilities?,
+    dangerous: Boolean,
+    flashFrequency: Float,
+    effectiveStyle: String,
+    strongFlashAck: Boolean,
+    brightness: Float,
+    previewStrength: Int,
+    avOffsetDraft: Float,
+    onAvOffsetChange: (Float) -> Unit,
+    onAvOffsetCommit: () -> Unit,
+    pulse: BeatPulseState,
+    showTapHint: Boolean,
+    message: String?,
+    onTogglePlay: () -> Unit,
+    onDismissTapHint: () -> Unit,
+    onOpenNumpad: () -> Unit,
+    onRequestStrongFlash: () -> Unit
 ) {
-    var sliderValue by remember { mutableFloatStateOf(bpm.toFloat()) }
-    var dragging by remember { mutableStateOf(false) }
-    LaunchedEffect(bpm) {
-        if (!dragging) sliderValue = bpm.toFloat()
-    }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val firstScreenHeight = maxHeight
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
+            // 第一屏：精确占满视口高度，只保留拍条舞台与 BPM 控制区
             Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(firstScreenHeight)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = bpm.toString(),
-                    fontSize = 76.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Accent,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onOpenInput() }
-                        .padding(horizontal = 12.dp)
+                MessageBanner(message)
+
+                SafetyBanner(
+                    dangerous = dangerous,
+                    frequency = flashFrequency,
+                    effectiveStyle = effectiveStyle,
+                    accentAllowed = settings.flashStyle == "flash" && effectiveStyle != "flash",
+                    onAllowStrongFlash = onRequestStrongFlash
                 )
-                Text("BPM · 点击数字可直接输入", fontSize = 12.sp, color = TextMuted)
-            }
-            Column(
-                modifier = Modifier.width(108.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                OutlinedButton(
-                    onClick = onTap,
-                    modifier = Modifier.height(48.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text("测速", fontSize = 14.sp)
-                }
-                Spacer(Modifier.height(4.dp))
-                Text("Tap Tempo · 连点 4 下", fontSize = 10.sp, color = TextMuted)
-            }
-        }
 
-        Slider(
-            value = sliderValue.coerceIn(30f, 300f),
-            onValueChange = { value ->
-                dragging = true
-                sliderValue = value
-                onBpmChange(value.roundToInt())
-            },
-            onValueChangeFinished = {
-                dragging = false
-                onBpmCommit(sliderValue.roundToInt())
-            },
-            valueRange = 30f..300f,
-            modifier = Modifier.fillMaxWidth()
-        )
+                HorizontalStackedBeatStage(
+                    settings = settings,
+                    pulse = pulse,
+                    playing = playing,
+                    showTapHint = showTapHint,
+                    onTogglePlay = onTogglePlay,
+                    onDismissTapHint = onDismissTapHint,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+
+                BpmControlBlock(
+                    bpm = bpm,
+                    beatsPerBar = settings.beatsPerBar,
+                    beatUnit = settings.beatUnit,
+                    onBpmChange = { vm.setBpm(it) },
+                    onBpmCommit = { vm.setBpm(it, commit = true) },
+                    onNudge = vm::nudgeBpm,
+                    onTap = vm::tapTempo,
+                    onOpenNumpad = onOpenNumpad,
+                    onSelectTimeSignature = vm::setTimeSignature
+                )
+
+                ScrollMoreCue()
+            }
+
+            // 第二屏及以下：下滑直接露出全部展开的设置卡片
+            MetronomeSettingsSection(
+                vm = vm,
+                settings = settings,
+                volume = volume,
+                torchState = torchState,
+                dangerous = dangerous,
+                strongFlashAck = strongFlashAck,
+                onRequestStrongFlash = onRequestStrongFlash,
+                brightness = brightness,
+                previewStrength = previewStrength,
+                avOffsetDraft = avOffsetDraft,
+                onAvOffsetChange = onAvOffsetChange,
+                onAvOffsetCommit = onAvOffsetCommit,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 20.dp)
+            )
+        }
     }
 }
 
-// ------------------------------------------------------------------ 拍点指示
-
 @Composable
-private fun BeatDots(settings: MetronomeSettings, pulse: BeatPulseState) {
-    val beats = settings.beatsPerBar.coerceAtLeast(1)
-    val absoluteBeat = pulse.activeBeat
-    val current = if (absoluteBeat >= 0) Math.floorMod(absoluteBeat, beats) else -1
-
+private fun ScrollMoreCue() {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            for (index in 0 until beats) {
-                val level = settings.accentPattern.getOrElse(index) { if (index == 0) 2 else 1 }
-                val isCurrent = index == current
-                val baseSize = when (level) {
-                    2 -> 28.dp
-                    1 -> 21.dp
-                    else -> 17.dp
-                }
-                val color = when {
-                    isCurrent -> Accent
-                    level == 2 -> Warm.copy(alpha = 0.8f)
-                    level == 1 -> Surface3
-                    else -> FretWire.copy(alpha = 0.55f)
-                }
-                val dotScale by animateFloatAsState(
-                    targetValue = if (isCurrent) 1.25f else 1f,
-                    animationSpec = tween(durationMillis = 110),
-                    label = "beatDotScale"
-                )
-                // 固定尺寸槽位：缩放只影响绘制、不参与布局，避免每拍把下方 UI 顶动
-                Box(
-                    modifier = Modifier.size(40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        Modifier
-                            .size(baseSize)
-                            .graphicsLayer {
-                                scaleX = dotScale
-                                scaleY = dotScale
-                            }
-                            .clip(CircleShape)
-                            .background(color)
-                    )
-                }
-            }
-        }
+        Box(
+            modifier = Modifier
+                .width(34.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(99.dp))
+                .background(FretWire)
+        )
         Text(
-            text = if (current >= 0) "第 ${current + 1} 拍 / $beats" else "共 $beats 拍",
-            fontSize = 12.sp,
+            text = "上滑查看更多设置",
+            fontSize = 11.sp,
             color = TextMuted
         )
     }
 }
 
-// ------------------------------------------------------------------ 拍号 / 细分
+// ------------------------------------------------------------------ 2. 横屏 / 帐篷演奏模式
 
 @Composable
-private fun TimeSignatureRow(
-    beatsPerBar: Int,
-    beatUnit: Int,
-    onSelect: (Int, Int) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        TimeSignatureOptions.forEach { option ->
-            FilterChip(
-                selected = beatsPerBar == option.beats && beatUnit == option.unit,
-                onClick = { onSelect(option.beats, option.unit) },
-                label = { Text(option.label, fontSize = 13.sp) },
-                modifier = Modifier.weight(1f),
-                colors = metronomeChipColors()
-            )
-        }
-    }
-}
-
-@Composable
-private fun SubdivisionRow(subdivision: Int, onSelect: (Int) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text("细分", fontSize = 13.sp, color = TextMuted, modifier = Modifier.width(36.dp))
-        for (value in 1..4) {
-            FilterChip(
-                selected = subdivision == value,
-                onClick = { onSelect(value) },
-                label = { Text(if (value == 1) "1" else "$value", fontSize = 13.sp) },
-                modifier = Modifier.weight(1f),
-                colors = metronomeChipColors()
-            )
-        }
-    }
-}
-
-// ------------------------------------------------------------------ 播放控制
-
-@Composable
-private fun TransportRow(
-    playing: Boolean,
-    onToggle: () -> Unit,
-    onNudge: (Int) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        OutlinedButton(
-            onClick = { onNudge(-1) },
-            modifier = Modifier.size(width = 64.dp, height = 64.dp),
-            contentPadding = PaddingValues(0.dp),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Text("−", fontSize = 28.sp, color = TextMain)
-        }
-        Button(
-            onClick = onToggle,
-            modifier = Modifier.weight(1f).height(64.dp),
-            shape = RoundedCornerShape(18.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (playing) Surface3 else Accent,
-                contentColor = if (playing) TextMain else Color(0xFF04211A)
-            )
-        ) {
-            Text(
-                text = if (playing) "暂停" else "开始",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        OutlinedButton(
-            onClick = { onNudge(1) },
-            modifier = Modifier.size(width = 64.dp, height = 64.dp),
-            contentPadding = PaddingValues(0.dp),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Text("+", fontSize = 26.sp, color = TextMain)
-        }
-    }
-}
-
-// ------------------------------------------------------------------ 模式开关
-
-@Composable
-private fun ModeRow(
+private fun LandscapePerformLayout(
     settings: MetronomeSettings,
-    onToggle: (MetronomeMode, Boolean) -> Unit
+    bpm: Int,
+    playing: Boolean,
+    pulse: BeatPulseState,
+    showTapHint: Boolean,
+    message: String?,
+    onTogglePlay: () -> Unit,
+    onDismissTapHint: () -> Unit,
+    onBpmChange: (Int) -> Unit,
+    onBpmCommit: (Int) -> Unit,
+    onNudge: (Int) -> Unit,
+    onTap: () -> Unit,
+    onOpenNumpad: () -> Unit
 ) {
-    val items = listOf(
-        Triple(MetronomeMode.SOUND, "声音", settings.soundEnabled),
-        Triple(MetronomeMode.SCREEN, "屏幕", settings.screenEnabled),
-        Triple(MetronomeMode.TORCH, "闪光灯", settings.torchEnabled),
-        Triple(MetronomeMode.VIBRATE, "振动", settings.vibrateEnabled)
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        items.forEach { (mode, label, selected) ->
-            FilterChip(
-                selected = selected,
-                onClick = { onToggle(mode, !selected) },
-                label = { Text(label, fontSize = 12.sp) },
-                modifier = Modifier.weight(1f),
-                colors = metronomeChipColors()
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 左侧主视觉区（约 2/3 – 3/4）：竖直药丸拍条左到右排列
+            VerticalRowBeatStage(
+                settings = settings,
+                pulse = pulse,
+                playing = playing,
+                showTapHint = showTapHint,
+                onTogglePlay = onTogglePlay,
+                onDismissTapHint = onDismissTapHint,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
             )
+
+            // 右侧控制区（约 1/4 – 1/3）：竖向 BPM 滑杆 + 最右 BPM / + / − / Tap
+            LandscapeBpmSidePanel(
+                bpm = bpm,
+                onBpmChange = onBpmChange,
+                onBpmCommit = onBpmCommit,
+                onNudge = onNudge,
+                onTap = onTap,
+                onOpenNumpad = onOpenNumpad,
+                modifier = Modifier.fillMaxHeight()
+            )
+        }
+
+        // 浮层提示（如 Tap Tempo 测速结果），不挤占横屏布局
+        if (message != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 6.dp)
+            ) {
+                Surface(
+                    color = Surface2.copy(alpha = 0.94f),
+                    shape = RoundedCornerShape(999.dp)
+                ) {
+                    Text(
+                        text = message,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        fontSize = 12.sp,
+                        color = InfoBlue
+                    )
+                }
+            }
         }
     }
 }
 
-// ------------------------------------------------------------------ 详细设置
+// ------------------------------------------------------------------ 3. 折叠屏悬停桌面模式（Tabletop）
 
 @Composable
-private fun SettingsPanel(
+private fun TabletopMetronomeLayout(
+    postureState: WindowPostureState,
     vm: MetronomeViewModel,
     settings: MetronomeSettings,
+    bpm: Int,
+    playing: Boolean,
     volume: Float,
     torchState: TorchCapabilities?,
     dangerous: Boolean,
+    flashFrequency: Float,
+    effectiveStyle: String,
     strongFlashAck: Boolean,
-    onRequestStrongFlash: () -> Unit,
     brightness: Float,
     previewStrength: Int,
     avOffsetDraft: Float,
     onAvOffsetChange: (Float) -> Unit,
-    onAvOffsetCommit: () -> Unit
+    onAvOffsetCommit: () -> Unit,
+    pulse: BeatPulseState,
+    showTapHint: Boolean,
+    message: String?,
+    onTogglePlay: () -> Unit,
+    onDismissTapHint: () -> Unit,
+    onOpenNumpad: () -> Unit,
+    onRequestStrongFlash: () -> Unit
 ) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    val density = LocalDensity.current
+    var containerTopInWindowPx by remember { mutableFloatStateOf(0f) }
 
-    Surface(
-        color = Surface1,
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coords ->
+                containerTopInWindowPx = coords.positionInWindow().y
+            }
     ) {
-        Column {
-            Row(
+        val hinge = postureState.hingeBounds
+        val topPaneHeight = if (hinge != null && hinge.isHorizontal && hinge.topPx > 0) {
+            val localTopPx = (hinge.topPx - containerTopInWindowPx).coerceAtLeast(0f)
+            with(density) { localTopPx.toDp() }.coerceIn(140.dp, (maxHeight - 180.dp).coerceAtLeast(140.dp))
+        } else {
+            maxHeight * 0.46f
+        }
+        val hingeGap = if (hinge != null && hinge.isHorizontal) {
+            with(density) { (hinge.bottomPx - hinge.topPx).coerceAtLeast(0).toDp() }.coerceAtLeast(16.dp)
+        } else {
+            16.dp
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 上半屏（折痕以上）：纯净超大方案 B 拍条舞台
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .height(topPaneHeight)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
-                Text("详细设置", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextMain)
-                Spacer(Modifier.weight(1f))
-                Text(if (expanded) "收起" else "展开", fontSize = 13.sp, color = Accent)
+                HorizontalStackedBeatStage(
+                    settings = settings,
+                    pulse = pulse,
+                    playing = playing,
+                    showTapHint = showTapHint,
+                    onTogglePlay = onTogglePlay,
+                    onDismissTapHint = onDismissTapHint,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
-            if (expanded) {
-                Column(
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    SliderRow(
-                        label = "节拍音量",
-                        value = volume,
-                        range = 0f..1f,
-                        valueText = "${(volume * 100).roundToInt()}%",
-                        onValueChange = vm::setVolume
-                    )
+            // 物理铰链安全避让区
+            Spacer(Modifier.height(hingeGap))
 
-                    SliderRow(
-                        label = "屏幕亮度",
-                        value = brightness,
-                        range = 0.1f..1f,
-                        valueText = "${(brightness * 100).roundToInt()}%",
-                        onValueChange = vm::previewFlashBrightness,
-                        onFinished = { vm.commitFlashBrightness(brightness) }
-                    )
+            // 下半屏（折痕以下，平放桌面）：完整 BPM 调节与全部设置（可滚动）
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MessageBanner(message)
 
-                    ColorSection(
-                        settings = settings,
-                        onPreview = vm::previewFlashColor,
-                        onCommit = vm::commitFlashColor,
-                        onPreset = vm::setFlashColor
-                    )
+                SafetyBanner(
+                    dangerous = dangerous,
+                    frequency = flashFrequency,
+                    effectiveStyle = effectiveStyle,
+                    accentAllowed = settings.flashStyle == "flash" && effectiveStyle != "flash",
+                    onAllowStrongFlash = onRequestStrongFlash
+                )
 
-                    Text("屏幕闪烁风格", fontSize = 13.sp, color = TextMuted)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = settings.flashStyle == "pulse",
-                            onClick = { vm.setFlashStyle("pulse") },
-                            label = { Text("柔和脉冲", fontSize = 12.sp) },
-                            colors = metronomeChipColors()
-                        )
-                        FilterChip(
-                            selected = settings.flashStyle == "flash",
-                            onClick = {
-                                if (dangerous && !strongFlashAck) {
-                                    onRequestStrongFlash()
-                                } else {
-                                    vm.setFlashStyle("flash")
-                                }
-                            },
-                            label = { Text("强闪", fontSize = 12.sp) },
-                            colors = metronomeChipColors()
-                        )
-                    }
+                BpmControlBlock(
+                    bpm = bpm,
+                    beatsPerBar = settings.beatsPerBar,
+                    beatUnit = settings.beatUnit,
+                    onBpmChange = { vm.setBpm(it) },
+                    onBpmCommit = { vm.setBpm(it, commit = true) },
+                    onNudge = vm::nudgeBpm,
+                    onTap = vm::tapTempo,
+                    onOpenNumpad = onOpenNumpad,
+                    onSelectTimeSignature = vm::setTimeSignature
+                )
 
-                    val capabilities = torchState
-                    val maxStrength = capabilities?.maxStrengthLevel?.coerceAtLeast(1) ?: 1
-                    SliderRow(
-                        label = "闪光灯强度",
-                        value = previewStrength.toFloat().coerceIn(1f, maxStrength.toFloat().coerceAtLeast(1f)),
-                        range = 1f..maxStrength.coerceAtLeast(2).toFloat(),
-                        valueText = if (capabilities?.supportsStrengthControl == true) {
-                            "$previewStrength / $maxStrength"
-                        } else {
-                            "不支持调节"
-                        },
-                        enabled = capabilities?.supportsStrengthControl == true,
-                        onValueChange = { vm.previewTorchStrength(it.roundToInt()) },
-                        onFinished = { vm.commitTorchStrength(previewStrength) }
-                    )
-                    if (capabilities != null && capabilities.available && !capabilities.supportsStrengthControl) {
-                        Text(
-                            "本机不支持闪光灯亮度调节，已降级为开/关模式。",
-                            fontSize = 12.sp,
-                            color = Warm
-                        )
-                    }
-                    if (capabilities != null && !capabilities.available) {
-                        Text(
-                            capabilities.error ?: "本机没有可用的闪光灯",
-                            fontSize = 12.sp,
-                            color = Danger
-                        )
-                    }
+                MetronomeSettingsSection(
+                    vm = vm,
+                    settings = settings,
+                    volume = volume,
+                    torchState = torchState,
+                    dangerous = dangerous,
+                    strongFlashAck = strongFlashAck,
+                    onRequestStrongFlash = onRequestStrongFlash,
+                    brightness = brightness,
+                    previewStrength = previewStrength,
+                    avOffsetDraft = avOffsetDraft,
+                    onAvOffsetChange = onAvOffsetChange,
+                    onAvOffsetCommit = onAvOffsetCommit
+                )
 
-                    SliderRow(
-                        label = "音画校准",
-                        value = avOffsetDraft,
-                        range = -100f..100f,
-                        valueText = "${avOffsetDraft.roundToInt()} ms（正值画面提前）",
-                        onValueChange = onAvOffsetChange,
-                        onFinished = onAvOffsetCommit
-                    )
-
-                    AccentEditor(settings = settings, onCycle = vm::cycleAccent)
-                }
+                Spacer(Modifier.height(12.dp))
             }
         }
     }
 }
 
-@Composable
-private fun SliderRow(
-    label: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    valueText: String,
-    onValueChange: (Float) -> Unit,
-    onFinished: (() -> Unit)? = null,
-    enabled: Boolean = true
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(label, fontSize = 13.sp, color = TextMuted)
-            Text(valueText, fontSize = 12.sp, color = if (enabled) TextMain else TextMuted)
-        }
-        Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = enabled,
-            valueRange = range,
-            onValueChangeFinished = onFinished
-        )
-    }
-}
+// ------------------------------------------------------------------ 4. 折叠屏完全展开大屏双栏（如 vivo X Fold3 Pro）
 
 @Composable
-private fun ColorSection(
+private fun UnfoldedDualPaneLayout(
+    postureState: WindowPostureState,
+    vm: MetronomeViewModel,
     settings: MetronomeSettings,
-    onPreview: (Long) -> Unit,
-    onCommit: (Long) -> Unit,
-    onPreset: (Long) -> Unit
+    bpm: Int,
+    playing: Boolean,
+    volume: Float,
+    torchState: TorchCapabilities?,
+    dangerous: Boolean,
+    flashFrequency: Float,
+    effectiveStyle: String,
+    strongFlashAck: Boolean,
+    brightness: Float,
+    previewStrength: Int,
+    avOffsetDraft: Float,
+    onAvOffsetChange: (Float) -> Unit,
+    onAvOffsetCommit: () -> Unit,
+    pulse: BeatPulseState,
+    showTapHint: Boolean,
+    message: String?,
+    onTogglePlay: () -> Unit,
+    onDismissTapHint: () -> Unit,
+    onOpenNumpad: () -> Unit,
+    onRequestStrongFlash: () -> Unit
 ) {
-    val baseColor = settings.flashColor
-    val hsv = remember(baseColor) {
-        FloatArray(3).also { AndroidColor.colorToHSV(baseColor.toInt(), it) }
-    }
-    var hue by remember(baseColor) { mutableFloatStateOf(hsv[0]) }
-    var saturation by remember(baseColor) { mutableFloatStateOf(hsv[1]) }
+    val density = LocalDensity.current
+    var containerLeftInWindowPx by remember { mutableFloatStateOf(0f) }
 
-    fun composeColor(): Long =
-        AndroidColor.HSVToColor(floatArrayOf(hue, saturation, 1f)).toLong() and 0xFFFF_FFFFL
-
-    val preview = Color(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, 1f)))
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("闪烁颜色", fontSize = 13.sp, color = TextMuted)
-            Spacer(Modifier.weight(1f))
-            Box(
-                Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(preview)
-                    .border(1.dp, TextMuted, CircleShape)
-            )
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            FlashColorPresets.chunked(3).forEach { rowColors ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    rowColors.forEach { preset ->
-                        val selected = (preset and 0xFFFFFFL) == (baseColor and 0xFFFFFFL)
-                        Box(
-                            Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(Color(preset))
-                                .then(
-                                    if (selected) {
-                                        Modifier.border(3.dp, TextMain, CircleShape)
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                                .clickable { onPreset(preset) }
-                        )
-                    }
-                }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coords ->
+                containerLeftInWindowPx = coords.positionInWindow().x
             }
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        val hinge = postureState.hingeBounds
+        val verticalHinge = hinge?.takeIf {
+            postureState.isVerticalBookFold && !it.isHorizontal && it.leftPx > 0
         }
-        SliderRow(
-            label = "色相",
-            value = hue,
-            range = 0f..360f,
-            valueText = "${hue.roundToInt()}°",
-            onValueChange = {
-                hue = it
-                onPreview(composeColor())
-            },
-            onFinished = { onCommit(composeColor()) }
-        )
-        SliderRow(
-            label = "饱和度",
-            value = saturation,
-            range = 0f..1f,
-            valueText = "${(saturation * 100).roundToInt()}%",
-            onValueChange = {
-                saturation = it
-                onPreview(composeColor())
-            },
-            onFinished = { onCommit(composeColor()) }
-        )
-    }
-}
+        val hingeGap = if (verticalHinge != null) {
+            with(density) { (verticalHinge.rightPx - verticalHinge.leftPx).coerceAtLeast(0).toDp() }.coerceAtLeast(18.dp)
+        } else {
+            16.dp
+        }
+        val leftPaneFixedWidth = if (verticalHinge != null) {
+            val localLeftPx = (verticalHinge.leftPx - containerLeftInWindowPx).coerceAtLeast(0f)
+            with(density) { localLeftPx.toDp() }.coerceIn(260.dp, (maxWidth - 260.dp).coerceAtLeast(260.dp))
+        } else {
+            null
+        }
 
-@Composable
-private fun AccentEditor(settings: MetronomeSettings, onCycle: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("重音编辑（点击切换 重 / 中 / 静）", fontSize = 13.sp, color = TextMuted)
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(hingeGap)
         ) {
-            repeat(settings.beatsPerBar.coerceAtLeast(1)) { index ->
-                val level = settings.accentPattern.getOrElse(index) { if (index == 0) 2 else 1 }
-                val label = when (level) {
-                    2 -> "重"
-                    1 -> "中"
-                    else -> "静"
-                }
-                val background = when (level) {
-                    2 -> Accent
-                    1 -> Surface3
-                    else -> Surface2
-                }
-                val contentColor = if (level == 2) Color(0xFF04211A) else TextMain
-                Box(
+            // 左栏：节拍条主舞台 + BPM 控制区
+            Column(
+                modifier = (if (leftPaneFixedWidth != null) {
+                    Modifier.width(leftPaneFixedWidth)
+                } else {
+                    Modifier.weight(1.12f)
+                }).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MessageBanner(message)
+
+                SafetyBanner(
+                    dangerous = dangerous,
+                    frequency = flashFrequency,
+                    effectiveStyle = effectiveStyle,
+                    accentAllowed = settings.flashStyle == "flash" && effectiveStyle != "flash",
+                    onAllowStrongFlash = onRequestStrongFlash
+                )
+
+                HorizontalStackedBeatStage(
+                    settings = settings,
+                    pulse = pulse,
+                    playing = playing,
+                    showTapHint = showTapHint,
+                    onTogglePlay = onTogglePlay,
+                    onDismissTapHint = onDismissTapHint,
                     modifier = Modifier
+                        .fillMaxWidth()
                         .weight(1f)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(background)
-                        .clickable { onCycle(index) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${index + 1}", fontSize = 11.sp, color = contentColor.copy(alpha = 0.75f))
-                        Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = contentColor)
-                    }
-                }
+                )
+
+                BpmControlBlock(
+                    bpm = bpm,
+                    beatsPerBar = settings.beatsPerBar,
+                    beatUnit = settings.beatUnit,
+                    onBpmChange = { vm.setBpm(it) },
+                    onBpmCommit = { vm.setBpm(it, commit = true) },
+                    onNudge = vm::nudgeBpm,
+                    onTap = vm::tapTempo,
+                    onOpenNumpad = onOpenNumpad,
+                    onSelectTimeSignature = vm::setTimeSignature
+                )
+            }
+
+            // 右栏：独立滚动的全部设置卡片
+            Column(
+                modifier = Modifier
+                    .weight(0.88f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MetronomeSettingsSection(
+                    vm = vm,
+                    settings = settings,
+                    volume = volume,
+                    torchState = torchState,
+                    dangerous = dangerous,
+                    strongFlashAck = strongFlashAck,
+                    onRequestStrongFlash = onRequestStrongFlash,
+                    brightness = brightness,
+                    previewStrength = previewStrength,
+                    avOffsetDraft = avOffsetDraft,
+                    onAvOffsetChange = onAvOffsetChange,
+                    onAvOffsetCommit = onAvOffsetCommit
+                )
+                Spacer(Modifier.height(12.dp))
             }
         }
     }
@@ -912,15 +828,3 @@ private fun SafetyBanner(
         }
     }
 }
-
-@Composable
-private fun metronomeChipColors() = FilterChipDefaults.filterChipColors(
-    containerColor = Surface2,
-    labelColor = TextMain,
-    selectedContainerColor = Accent,
-    selectedLabelColor = Color(0xFF04211A)
-)
-
-
-
-
