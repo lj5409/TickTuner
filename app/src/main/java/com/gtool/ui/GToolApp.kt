@@ -21,9 +21,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -39,18 +43,23 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.gtool.R
+import com.gtool.feature.acoustic.AcousticScreen
 import com.gtool.feature.chords.ChordsScreen
 import com.gtool.feature.metronome.MetronomeScreen
 import com.gtool.feature.tuner.TunerScreen
 import com.gtool.ui.theme.Surface1
 import com.gtool.ui.theme.TextMuted
 
+/** 允许无参子页面（如声学横屏全屏对比）请求暂时隐藏底部导航壳，不破坏 NavHost 单一槽位。 */
+val LocalImmersiveChromeSetter = compositionLocalOf<(Boolean) -> Unit> { {} }
+
 private data class Tab(val route: String, val label: Int, val icon: Int)
 
 private val tabs = listOf(
     Tab("tuner", R.string.tab_tuner, R.drawable.ic_tuner),
     Tab("metronome", R.string.tab_metronome, R.drawable.ic_metronome),
-    Tab("chords", R.string.tab_chords, R.drawable.ic_chords)
+    Tab("chords", R.string.tab_chords, R.drawable.ic_chords),
+    Tab("acoustic", R.string.tab_acoustic, R.drawable.ic_acoustic)
 )
 
 private const val NAV_PREFS_NAME = "gtool_nav"
@@ -91,17 +100,21 @@ private fun GToolAppShell(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val postureState = LocalWindowPosture.current
+    var acousticImmersive by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentRoute) {
+        if (currentRoute != "acoustic") {
+            acousticImmersive = false
+        }
         if (currentRoute != null && tabs.any { it.route == currentRoute }) {
             onPersistRoute(currentRoute)
         }
     }
 
-    val hideNavChrome = (currentRoute == "metronome" || currentRoute == "tuner") && (
+    val hideNavChrome = ((currentRoute == "metronome" || currentRoute == "tuner") && (
         postureState.posture == AppPosture.LANDSCAPE_COMPACT ||
             postureState.posture == AppPosture.TABLETOP
-        )
+        )) || (currentRoute == "acoustic" && acousticImmersive)
     val useRail = !hideNavChrome && postureState.posture == AppPosture.UNFOLDED_EXPANDED
 
     val onSelectTab: (String, Boolean) -> Unit = { route, selected ->
@@ -116,47 +129,50 @@ private fun GToolAppShell(
     }
 
     // Keep NavHost in a single structural slot across all posture changes so
-    // NavBackStackEntry and MetronomeViewModel are never destroyed on rotation/fold.
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = if (hideNavChrome || useRail) {
-            WindowInsets.safeDrawing
-        } else {
-            ScaffoldDefaults.contentWindowInsets
-        },
-        bottomBar = {
-            if (!hideNavChrome && !useRail) {
-                GToolBottomBar(
-                    currentRoute = currentRoute,
-                    onSelectTab = onSelectTab
-                )
+    // NavBackStackEntry and ViewModels are never destroyed on rotation/fold.
+    CompositionLocalProvider(LocalImmersiveChromeSetter provides { hide -> acousticImmersive = hide }) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = if (hideNavChrome || useRail) {
+                WindowInsets.safeDrawing
+            } else {
+                ScaffoldDefaults.contentWindowInsets
+            },
+            bottomBar = {
+                if (!hideNavChrome && !useRail) {
+                    GToolBottomBar(
+                        currentRoute = currentRoute,
+                        onSelectTab = onSelectTab
+                    )
+                }
             }
-        }
-    ) { innerPadding ->
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            if (useRail) {
-                GToolNavigationRail(
-                    currentRoute = currentRoute,
-                    onSelectTab = onSelectTab
-                )
-            }
-            Box(
+        ) { innerPadding ->
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
+                    .fillMaxSize()
+                    .padding(innerPadding)
             ) {
-                NavHost(
-                    navController = navController,
-                    startDestination = startDestination,
-                    modifier = Modifier.fillMaxSize()
+                if (useRail) {
+                    GToolNavigationRail(
+                        currentRoute = currentRoute,
+                        onSelectTab = onSelectTab
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
                 ) {
-                    composable("tuner") { TunerScreen() }
-                    composable("metronome") { MetronomeScreen() }
-                    composable("chords") { ChordsScreen() }
+                    NavHost(
+                        navController = navController,
+                        startDestination = startDestination,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        composable("tuner") { TunerScreen() }
+                        composable("metronome") { MetronomeScreen() }
+                        composable("chords") { ChordsScreen() }
+                        composable("acoustic") { AcousticScreen() }
+                    }
                 }
             }
         }

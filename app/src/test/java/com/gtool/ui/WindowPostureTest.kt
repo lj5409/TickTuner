@@ -157,4 +157,14 @@ class WindowPostureTest {
         assertEquals(1110, hinge.bottomPx)
         assertEquals(true, hinge.isHorizontal)
     }
+
+    @Test
+    fun resolveSavedRoute_supportsAllFourTabsIncludingAcoustic() {
+        assertEquals("tuner", resolveSavedRoute("tuner"))
+        assertEquals("metronome", resolveSavedRoute("metronome"))
+        assertEquals("chords", resolveSavedRoute("chords"))
+        assertEquals("acoustic", resolveSavedRoute("acoustic"))
+        assertEquals("tuner", resolveSavedRoute(null))
+        assertEquals("tuner", resolveSavedRoute("unknown_tab"))
+    }
 }

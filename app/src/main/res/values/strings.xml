@@ -4,4 +4,5 @@
     <string name="tab_tuner">调音器</string>
     <string name="tab_metronome">节拍器</string>
     <string name="tab_chords">和弦</string>
+    <string name="tab_acoustic">声学</string>
 </resources>
