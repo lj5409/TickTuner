@@ -10,6 +10,7 @@ import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -27,32 +28,43 @@ import kotlin.random.Random
 class GuitarSynth(private val sampleRate: Int = SAMPLE_RATE) {
 
     private val pcmCache = HashMap<Int, FloatArray>()
+    private var cachedA4DeciHz: Int = (DEFAULT_A4 * 10.0).roundToInt()
 
     /**
      * 返回指定音高、力度的 PCM。velocity 会等比缩放振幅（0.8 为基准力度）。
      * 每次调用都会新建数组，适合离线处理；实时播放请用 [pcm] + 混音增益。
      */
-    fun render(midi: Int, velocity: Float = REFERENCE_VELOCITY): FloatArray {
-        val base = pcm(midi)
+    fun render(
+        midi: Int,
+        velocity: Float = REFERENCE_VELOCITY,
+        a4: Double = DEFAULT_A4
+    ): FloatArray {
+        val base = pcm(midi, a4)
         val gain = (velocity.coerceIn(0f, 1f) / REFERENCE_VELOCITY).coerceIn(0f, 1.25f)
         return FloatArray(base.size) { index -> base[index] * gain }
     }
 
-    /** 缓存的原始 PCM（基准力度 0.8）。调用方不得修改返回数组。 */
-    fun pcm(midi: Int): FloatArray {
+    /** 缓存的原始 PCM（基准力度 0.8），跟随 [a4] 基准音高。调用方不得修改返回数组。 */
+    fun pcm(midi: Int, a4: Double = DEFAULT_A4): FloatArray {
         val safeMidi = midi.coerceIn(MIN_MIDI, MAX_MIDI)
+        val safeA4 = a4.coerceIn(400.0, 480.0)
+        val deciHz = (safeA4 * 10.0).roundToInt()
         synchronized(pcmCache) {
+            if (deciHz != cachedA4DeciHz) {
+                pcmCache.clear()
+                cachedA4DeciHz = deciHz
+            }
             pcmCache[safeMidi]?.let { return it }
-            val rendered = synthesize(safeMidi)
+            val rendered = synthesize(safeMidi, safeA4)
             pcmCache[safeMidi] = rendered
             return rendered
         }
     }
 
     /** 预渲染一段音域，建议在后台线程调用。 */
-    fun warmUp(range: IntRange = DEFAULT_WARM_UP_RANGE) {
+    fun warmUp(range: IntRange = DEFAULT_WARM_UP_RANGE, a4: Double = DEFAULT_A4) {
         for (midi in range) {
-            if (midi in MIN_MIDI..MAX_MIDI) pcm(midi)
+            if (midi in MIN_MIDI..MAX_MIDI) pcm(midi, a4)
         }
     }
 
@@ -64,8 +76,8 @@ class GuitarSynth(private val sampleRate: Int = SAMPLE_RATE) {
     // 合成
     // ------------------------------------------------------------------
 
-    private fun synthesize(midi: Int): FloatArray {
-        val frequency = midiToFrequency(midi).toFloat()
+    private fun synthesize(midi: Int, a4: Double): FloatArray {
+        val frequency = midiToFrequency(midi, a4).toFloat()
         val period = sampleRate / frequency
         val integerDelay = floor(period).toInt().coerceAtLeast(2)
 
@@ -249,6 +261,7 @@ class GuitarSynth(private val sampleRate: Int = SAMPLE_RATE) {
 
     companion object {
         const val SAMPLE_RATE = 48_000
+        const val DEFAULT_A4 = 440.0
         const val REFERENCE_VELOCITY = 0.8f
         val DEFAULT_WARM_UP_RANGE = 40..76 // E2..E5
         private const val TARGET_PEAK = 0.72f

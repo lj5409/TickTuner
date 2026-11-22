@@ -85,6 +85,7 @@ class ChordPlayer(
         voicing: Voicing,
         tuning: Tuning,
         capo: Int = 0,
+        a4: Double = GuitarSynth.DEFAULT_A4,
         style: ChordStyle = ChordStyle.DOWN_STRUM,
         bpm: Int = 90,
         loop: Boolean = false,
@@ -105,6 +106,7 @@ class ChordPlayer(
             voicing = voicing,
             tuning = tuning,
             capo = capo.coerceIn(0, 12),
+            a4 = a4.coerceIn(400.0, 480.0),
             style = style,
             bpm = bpm.coerceIn(30, 240),
             loop = loop,
@@ -210,7 +212,7 @@ class ChordPlayer(
             }
 
             // 先将本次要用的音色合成好，避免第一次拨弦时卡顿。
-            for (index in sounded) synth.pcm(midiOf[index])
+            for (index in sounded) synth.pcm(midiOf[index], config.a4)
             if (!running || id != playbackId.get()) return
 
             val audioTrack = createAudioTrack()
@@ -341,7 +343,7 @@ class ChordPlayer(
                     voices.add(
                         Voice(
                             startSample = event.sample,
-                            pcm = synth.pcm(event.midi),
+                            pcm = synth.pcm(event.midi, config.a4),
                             gain = VOICE_GAIN * (event.velocity / GuitarSynth.REFERENCE_VELOCITY)
                         )
                     )
@@ -527,6 +529,7 @@ class ChordPlayer(
         val voicing: Voicing,
         val tuning: Tuning,
         val capo: Int,
+        val a4: Double,
         val style: ChordStyle,
         val bpm: Int,
         val loop: Boolean,

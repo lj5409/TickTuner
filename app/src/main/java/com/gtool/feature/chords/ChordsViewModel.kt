@@ -78,7 +78,7 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
             repository.state.collect { appState -> applyRepositoryState(appState) }
         }
         viewModelScope.launch(Dispatchers.Default) {
-            synth.warmUp(GuitarSynth.DEFAULT_WARM_UP_RANGE)
+            synth.warmUp(GuitarSynth.DEFAULT_WARM_UP_RANGE, _uiState.value.a4)
         }
     }
 
@@ -245,10 +245,12 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
         if (updated != current) {
             val contextChanged = updated.tuning.id != current.tuning.id ||
                 updated.tuning.strings != current.tuning.strings ||
-                updated.capo != current.capo
+                updated.capo != current.capo ||
+                updated.a4 != current.a4
             _uiState.value = updated
-            // 外部改调弦（含自定义调弦改弦音）/变调夹才打断；自己写回设置时 capo 已相同，不会触发
+            // 外部改调弦（含自定义调弦改弦音）/变调夹/A4 基准才打断；自己写回设置时 capo 已相同，不会触发
             if (contextChanged) stopPlayback()
+            if (updated.a4 != current.a4) prewarm(updated.voicing)
         }
         maybeRecompute(resetIndex = true)
     }
@@ -298,8 +300,9 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
         val midis = voicing.soundedStrings.mapNotNull { index ->
             VoicingGenerator.soundingNote(state.tuning, index, state.capo, voicing.frets[index])?.midi
         }
+        val a4 = state.a4
         viewModelScope.launch(Dispatchers.Default) {
-            midis.forEach { synth.pcm(it) }
+            midis.forEach { synth.pcm(it, a4) }
         }
     }
 
@@ -315,6 +318,7 @@ class ChordsViewModel(application: Application) : AndroidViewModel(application) 
             voicing = voicing,
             tuning = state.tuning,
             capo = state.capo,
+            a4 = state.a4,
             style = state.style,
             bpm = state.bpm,
             loop = state.loop,

@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -43,13 +43,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -60,9 +63,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gtool.core.audio.ChordStyle
 import com.gtool.core.music.ArpeggioPattern
 import com.gtool.core.music.ChordQuality
-import com.gtool.core.music.Note
 import com.gtool.core.music.PitchClass
 import com.gtool.core.music.Voicing
+import com.gtool.core.music.VoicingGenerator
+import com.gtool.feature.tuner.TuningPickerDialog
 import com.gtool.ui.theme.Accent
 import com.gtool.ui.theme.Bg
 import com.gtool.ui.theme.ChordBlue
@@ -74,12 +78,12 @@ import com.gtool.ui.theme.TextMain
 import com.gtool.ui.theme.TextMuted
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
 fun ChordsScreen(viewModel: ChordsViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var showTuningPicker by remember { mutableStateOf(false) }
 
     val energies = remember { List(8) { Animatable(0f) } }
     val animationJobs = remember { arrayOfNulls<Job>(8) }
@@ -131,7 +135,7 @@ fun ChordsScreen(viewModel: ChordsViewModel = viewModel()) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Header(state)
-        TuningCard(state = state, onSelect = viewModel::setTuning)
+        TuningCard(state = state, onSelectClick = { showTuningPicker = true })
         RootSelector(state = state, onSelect = viewModel::setRoot)
         QualitySelector(state = state, onSelect = viewModel::setQuality)
         ToneCard(state)
@@ -151,6 +155,20 @@ fun ChordsScreen(viewModel: ChordsViewModel = viewModel()) {
             onTogglePlay = viewModel::togglePlayback
         )
         Spacer(Modifier.height(6.dp))
+    }
+
+    if (showTuningPicker) {
+        TuningPickerDialog(
+            tunings = state.allTunings,
+            activeId = state.tuning.id,
+            useFlats = state.useFlats,
+            onSelect = { tuning ->
+                viewModel.setTuning(tuning.id)
+                showTuningPicker = false
+            },
+            onManage = null,
+            onDismiss = { showTuningPicker = false }
+        )
     }
 }
 
@@ -249,7 +267,6 @@ private fun QualitySelector(state: ChordsUiState, onSelect: (ChordQuality) -> Un
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ToneCard(state: ChordsUiState) {
     SectionCard {
@@ -257,48 +274,52 @@ private fun ToneCard(state: ChordsUiState) {
             title = "组成音 · ${state.quality.displayName}",
             trailing = state.chord.quality.intervals.joinToString(" · ")
         )
-        val notes = state.chord.notes(baseOctave = 3)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        val tones = state.chord.tones
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            state.chord.tones.forEachIndexed { index, tone ->
-                val isRoot = tone.pitchClass == state.chord.root
-                val frequency = notes.getOrNull(index)?.frequency(state.a4) ?: 0.0
-                Surface(
-                    color = Surface2,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+            for (slot in 0 until 5) {
+                val tone = tones.getOrNull(slot)
+                if (tone != null) {
+                    val isRoot = tone.pitchClass == state.chord.root
+                    Surface(
+                        color = Surface2,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Text(
-                            text = tone.pitchClass.name(state.useFlats),
-                            color = if (isRoot) RootRed else ChordBlue,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = tone.degree,
-                            color = TextMuted,
-                            fontSize = 11.sp
-                        )
-                        Text(
-                            text = String.format(Locale.US, "%.1f Hz", frequency),
-                            color = TextMuted,
-                            fontSize = 10.sp
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = tone.pitchClass.name(state.useFlats),
+                                color = if (isRoot) RootRed else ChordBlue,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = tone.degree,
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                maxLines = 1
+                            )
+                        }
                     }
+                } else {
+                    Spacer(Modifier.weight(1f))
                 }
             }
         }
         Text(
-            text = "变调夹 ${state.capo} 品（${if (state.capo == 0) "关闭" else "开启"}） · " +
-                "实际发声音高为 ${state.chordName}，指法按相对品位显示",
+            text = "变调夹 ${state.capo} 品 · 实际音高为 ${state.chordName}",
             color = TextMuted,
             fontSize = 11.sp,
-            minLines = 2
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -309,7 +330,14 @@ private fun FretboardCard(
     energies: List<Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>
 ) {
     SectionCard {
-        SectionTitle(title = "指板", trailing = "0–15 品 · 左右滑动")
+        SectionTitle(
+            title = "指板",
+            trailing = if (state.capo > 0) {
+                "Capo ${state.capo} 品 · 绝对 0–15 品"
+            } else {
+                "绝对 0–15 品 · 左右滑动"
+            }
+        )
         Fretboard(
             tuning = state.tuning,
             chord = state.chord,
@@ -433,46 +461,38 @@ private fun VoicingCard(
 }
 
 @Composable
-private fun TuningCard(state: ChordsUiState, onSelect: (String) -> Unit) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(state.tuning.id, state.allTunings) {
-        val selectedIndex = state.allTunings.indexOfFirst { it.id == state.tuning.id }
-        if (selectedIndex >= 0) {
-            listState.animateScrollToItem(selectedIndex)
-        }
-    }
+private fun TuningCard(state: ChordsUiState, onSelectClick: () -> Unit) {
     SectionCard {
-        SectionTitle(
-            title = "调弦",
-            trailing = state.tuning.joinedNames(state.useFlats)
-        )
-        LazyRow(state = listState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.allTunings, key = { it.id }) { tuning ->
-                FilterChip(
-                    selected = tuning.id == state.tuning.id,
-                    onClick = { onSelect(tuning.id) },
-                    label = {
-                        Text(
-                            text = tuning.name,
-                            fontSize = 13.sp,
-                            fontWeight = if (tuning.id == state.tuning.id) {
-                                FontWeight.SemiBold
-                            } else {
-                                FontWeight.Normal
-                            }
-                        )
-                    },
-                    modifier = Modifier.heightIn(min = 44.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = chipColors()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "调弦 · ${state.tuning.name}",
+                    color = TextMain,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = state.tuning.joinedNames(state.useFlats),
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
+            OutlinedButton(
+                onClick = onSelectClick,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text("切换")
+            }
         }
-        Text(
-            text = "切换后指板音位、组成音位置与推荐指法都会按新调弦重算。",
-            color = TextMuted,
-            fontSize = 11.sp
-        )
     }
 }
 
@@ -510,7 +530,7 @@ private fun CapoCard(state: ChordsUiState, onSelect: (Int) -> Unit) {
             }
         }
         Text(
-            text = "发声音高 = 空弦 + Capo + 品位；指法图与品位按相对位置显示。",
+            text = "发声音高 = 空弦 + Capo + 品位；指板按绝对品位显示，推荐指法按相对品位显示。",
             color = TextMuted,
             fontSize = 11.sp
         )
@@ -710,13 +730,10 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
 )
 
 private fun bassName(state: ChordsUiState, voicing: Voicing): String? {
-    val bassIndex = voicing.frets.indexOfFirst { it >= 0 }
-    if (bassIndex < 0) return null
-    val note: Note = com.gtool.core.music.VoicingGenerator.soundingNote(
+    val note = VoicingGenerator.lowestSoundingNote(
         tuning = state.tuning,
-        stringIndex = bassIndex,
-        capo = state.capo,
-        fret = voicing.frets[bassIndex]
+        voicing = voicing,
+        capo = state.capo
     ) ?: return null
     return note.pitchClass.name(state.useFlats)
 }
