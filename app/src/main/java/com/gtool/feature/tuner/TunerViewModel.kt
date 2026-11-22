@@ -56,6 +56,8 @@ data class TunerUiState(
     /** 相对目标弦的音分偏差，正值偏高。 */
     val cents: Double? = null,
     val inTune: Boolean = false,
+    /** 各弦位最近一次识别到的音分偏差（按弦下标缓存，切页或重启后清空）。 */
+    val lastStringCents: Map<Int, Double> = emptyMap(),
     val playingIndex: Int? = null
 ) {
     val targetNote: Note? get() = targetIndex?.let { tuning.strings.getOrNull(it) }
@@ -177,9 +179,13 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(permissionGranted = true, listening = true, errorMessage = null) }
     }
 
-    /** 页面不可见时调用：停止录音但保留对象，便于回来时快速重启。 */
+    /** 页面不可见时调用：停止录音与参考音并重置各弦历史音分缓存，保留对象便于快速重启。 */
     fun stopListening() {
-        if (!listening && capture?.isRunning != true) return
+        stopReference()
+        if (!listening && capture?.isRunning != true) {
+            _state.update { it.copy(lastStringCents = emptyMap()) }
+            return
+        }
         listening = false
         capture?.stop()
         resetSmoothing()
@@ -192,7 +198,8 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 matchedIndex = null,
                 targetIndex = current.lockedIndex,
                 cents = null,
-                inTune = false
+                inTune = false,
+                lastStringCents = emptyMap()
             )
         }
     }
@@ -217,6 +224,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 targetIndex = current.lockedIndex,
                 cents = null,
                 inTune = false,
+                lastStringCents = emptyMap(),
                 playingIndex = null
             )
         }
@@ -314,6 +322,11 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
             val targetIndex = current.lockedIndex ?: matched
             val target = targetIndex?.let { current.tuning.strings.getOrNull(it) }
             val cents = target?.let { centsFrom(smoothed, it.frequency(current.a4)) }
+            val updatedLastCents = if (targetIndex != null && cents != null) {
+                current.lastStringCents + (targetIndex to cents)
+            } else {
+                current.lastStringCents
+            }
             current.copy(
                 frequency = smoothed,
                 clarity = result.confidence,
@@ -321,7 +334,8 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 matchedIndex = matched,
                 targetIndex = targetIndex,
                 cents = cents,
-                inTune = cents != null && abs(cents) <= IN_TUNE_CENTS
+                inTune = cents != null && abs(cents) <= IN_TUNE_CENTS,
+                lastStringCents = updatedLastCents
             )
         }
     }
@@ -388,14 +402,19 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectTuning(id: String) {
         val target = _state.value.allTunings.firstOrNull { it.id == id } ?: return
+        stopReference()
         _state.update { current ->
-            withTarget(current.copy(tuning = target, lockedIndex = null), null)
+            withTarget(
+                current.copy(tuning = target, lockedIndex = null, lastStringCents = emptyMap()),
+                null
+            )
         }
         viewModelScope.launch { repository.setActiveTuning(target.id) }
     }
 
     fun createCustomTuning(name: String) {
         val base = _state.value.tuning
+        stopReference()
         val custom = Tuning(
             id = "custom_" + UUID.randomUUID().toString().take(8),
             name = name.trim().ifEmpty { "自定义调弦" },
@@ -407,7 +426,8 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 tuning = custom,
                 customTunings = current.customTunings + custom,
                 allTunings = current.allTunings + custom,
-                lockedIndex = null
+                lockedIndex = null,
+                lastStringCents = emptyMap()
             ).let { withTarget(it, null) }
         }
         viewModelScope.launch {
@@ -419,6 +439,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     /** 保存自定义调弦（改名 / 逐弦改音）；内置调弦直接忽略。 */
     fun updateCustomTuning(updated: Tuning) {
         if (updated.builtIn) return
+        stopReference()
         val clean = updated.copy(
             name = updated.name.trim().ifEmpty { "自定义调弦" },
             builtIn = false
@@ -428,7 +449,15 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
             val all = current.allTunings.map { if (it.id == clean.id) clean else it }
             val active = if (current.tuning.id == clean.id) clean else current.tuning
             val lock = current.lockedIndex?.takeIf { it in clean.strings.indices }
-            withTarget(current.copy(tuning = active, customTunings = customs, allTunings = all), lock)
+            withTarget(
+                current.copy(
+                    tuning = active,
+                    customTunings = customs,
+                    allTunings = all,
+                    lastStringCents = emptyMap()
+                ),
+                lock
+            )
         }
         VoicingGenerator.clearCache()
         viewModelScope.launch { repository.upsertTuning(clean) }
@@ -436,13 +465,20 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteCustomTuning(tuning: Tuning) {
         if (tuning.builtIn) return
+        stopReference()
         val wasActive = _state.value.tuning.id == tuning.id
         _state.update { current ->
             val customs = current.customTunings.filterNot { it.id == tuning.id }
             val all = current.allTunings.filterNot { it.id == tuning.id }
             val active = if (wasActive) TuningLibrary.STANDARD else current.tuning
             withTarget(
-                current.copy(tuning = active, customTunings = customs, allTunings = all, lockedIndex = null),
+                current.copy(
+                    tuning = active,
+                    customTunings = customs,
+                    allTunings = all,
+                    lockedIndex = null,
+                    lastStringCents = emptyMap()
+                ),
                 null
             )
         }
@@ -458,7 +494,16 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     fun setA4(value: Double) {
         val clamped = ((value.coerceIn(MIN_A4, MAX_A4) * 2.0).roundToInt() / 2.0)
         a4Override = clamped
-        _state.update { current -> withTarget(current.copy(a4 = clamped), current.lockedIndex) }
+        val playing = _state.value.playingIndex
+        _state.update { current ->
+            withTarget(current.copy(a4 = clamped, lastStringCents = emptyMap()), current.lockedIndex)
+        }
+        if (playing != null) {
+            val note = _state.value.tuning.strings.getOrNull(playing)
+            if (note != null) {
+                toneGenerator?.playLoop(frequency = note.frequency(clamped), volume = REFERENCE_VOLUME)
+            }
+        }
         saveA4Job?.cancel()
         saveA4Job = viewModelScope.launch {
             delay(300)
@@ -476,23 +521,24 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
 
     // ------------------------------------------------------------------ 参考音
 
+    /** 循环播放指定弦的参考音；若该弦已在播放则停止。 */
     fun playReference(index: Int) {
         val current = _state.value
+        if (current.playingIndex == index) {
+            stopReference()
+            return
+        }
         val note = current.tuning.strings.getOrNull(index) ?: return
         val generator = toneGenerator ?: ToneGenerator(AudioCapture.DEFAULT_SAMPLE_RATE).also {
             toneGenerator = it
         }
-        generator.play(
+        referenceJob?.cancel()
+        referenceJob = null
+        generator.playLoop(
             frequency = note.frequency(current.a4),
-            durationMs = REFERENCE_DURATION_MS,
             volume = REFERENCE_VOLUME
         )
-        referenceJob?.cancel()
         _state.update { it.copy(playingIndex = index) }
-        referenceJob = viewModelScope.launch {
-            delay(REFERENCE_DURATION_MS.toLong())
-            _state.update { if (it.playingIndex == index) it.copy(playingIndex = null) else it }
-        }
     }
 
     fun stopReference() {

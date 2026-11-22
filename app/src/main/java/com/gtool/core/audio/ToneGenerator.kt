@@ -31,7 +31,7 @@ class ToneGenerator(private val sampleRate: Int = DEFAULT_SAMPLE_RATE) {
     private var activeTrack: AudioTrack? = null
 
     /**
-     * 播放一个固定频率的参考音。
+     * 播放一个固定频率的参考音（定长）。
      * @param frequency 频率 Hz
      * @param durationMs 时长毫秒
      * @param volume 峰值音量 0..1
@@ -41,6 +41,20 @@ class ToneGenerator(private val sampleRate: Int = DEFAULT_SAMPLE_RATE) {
         val token = playToken.incrementAndGet()
         try {
             executor.execute { render(token, frequency, durationMs, volume.coerceIn(0f, 1f)) }
+        } catch (_: Throwable) {
+            // 已 release，忽略
+        }
+    }
+
+    /**
+     * 持续循环播放一个固定频率的参考音，直到调用 [stop] / [release] 或新的播放请求打断。
+     * 采用相位连续环绕，零接缝咔哒声，停止时带短淡出避免爆音。
+     */
+    fun playLoop(frequency: Double, volume: Float = 0.9f) {
+        if (frequency <= 0.0) return
+        val token = playToken.incrementAndGet()
+        try {
+            executor.execute { renderLoop(token, frequency, volume.coerceIn(0f, 1f)) }
         } catch (_: Throwable) {
             // 已 release，忽略
         }
@@ -161,6 +175,96 @@ class ToneGenerator(private val sampleRate: Int = DEFAULT_SAMPLE_RATE) {
                 runCatching { track.pause() }
                 runCatching { track.flush() }
             }
+        } catch (_: Throwable) {
+            // 被打断或设备异常，直接走清理
+        } finally {
+            runCatching { track.flush() }
+            runCatching { track.release() }
+            if (activeTrack === track) activeTrack = null
+        }
+    }
+
+    private fun renderLoop(token: Int, frequency: Double, volume: Float) {
+        if (token != playToken.get()) return
+
+        val minBufferBytes = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_FLOAT
+        )
+        val bufferBytes = if (minBufferBytes > 0) {
+            max(minBufferBytes * 2, sampleRate / 10 * BYTES_PER_FLOAT)
+        } else {
+            sampleRate / 5 * BYTES_PER_FLOAT
+        }
+
+        val track = try {
+            AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setBufferSizeInBytes(bufferBytes)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                .build()
+        } catch (_: Throwable) {
+            return
+        }
+
+        if (track.state != AudioTrack.STATE_INITIALIZED) {
+            runCatching { track.release() }
+            return
+        }
+        activeTrack = track
+
+        val playResult = runCatching { track.play() }
+        if (playResult.isFailure) {
+            runCatching { track.release() }
+            if (activeTrack === track) activeTrack = null
+            return
+        }
+
+        val fadeInFrames = (FADE_IN_SECONDS * sampleRate).toInt().coerceAtLeast(1)
+        val chunk = FloatArray(CHUNK_FRAMES)
+        val twoPi = 2.0 * PI
+        val angularStep = twoPi * frequency / sampleRate
+        val norm = 1.0 + HARMONIC_2 + HARMONIC_3
+
+        try {
+            var written = 0L
+            var phase = 0.0
+            while (token == playToken.get()) {
+                for (i in 0 until CHUNK_FRAMES) {
+                    val attack = if (written < fadeInFrames) {
+                        (written.toDouble() / fadeInFrames).coerceAtMost(1.0)
+                    } else {
+                        1.0
+                    }
+                    val wave = (sin(phase) + HARMONIC_2 * sin(2.0 * phase) + HARMONIC_3 * sin(3.0 * phase)) / norm
+                    chunk[i] = (wave * attack * volume).toFloat()
+                    phase += angularStep
+                    if (phase >= twoPi) phase -= twoPi
+                    written++
+                }
+                var offset = 0
+                while (offset < CHUNK_FRAMES && token == playToken.get()) {
+                    val result = track.write(chunk, offset, CHUNK_FRAMES - offset, AudioTrack.WRITE_BLOCKING)
+                    if (result <= 0) break
+                    offset += result
+                }
+            }
+            runCatching { track.pause() }
+            runCatching { track.flush() }
         } catch (_: Throwable) {
             // 被打断或设备异常，直接走清理
         } finally {

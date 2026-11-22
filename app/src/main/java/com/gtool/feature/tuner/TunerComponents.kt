@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,12 +33,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gtool.ui.theme.Accent
@@ -229,6 +232,7 @@ fun PitchPanel(
     state: TunerUiState,
     hasPermission: Boolean,
     onPlayTarget: (Int) -> Unit,
+    onStopReference: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val note = state.detectedNote
@@ -318,43 +322,65 @@ fun PitchPanel(
 
             val targetIndex = state.targetIndex
             val target = targetIndex?.let { state.tuning.strings.getOrNull(it) }
-            Spacer(Modifier.height(6.dp))
-            // 固定高度的目标行：没有声音时也保留占位，避免下方弦位列表上下跳动
+            Spacer(Modifier.height(4.dp))
+            // 固定单行高度的目标行：避免换行与下方弦位列表上下跳动
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 44.dp)
+                    .heightIn(min = 40.dp)
             ) {
-                if (target != null && targetIndex != null) {
+                if (targetIndex != null && target != null) {
+                    val isPlayingTarget = state.playingIndex == targetIndex
                     Text(
                         text = "目标 ${target.name(state.useFlats)} · 第${state.tuning.stringNumber(targetIndex)}弦" +
                             if (state.lockedIndex == targetIndex) " · 已锁定" else "",
                         fontSize = 13.sp,
-                        color = TextMuted
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     TextButton(
-                        onClick = { onPlayTarget(targetIndex) },
+                        onClick = {
+                            if (isPlayingTarget) onStopReference() else onPlayTarget(targetIndex)
+                        },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = if (state.playingIndex == targetIndex) Accent else TextMuted
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = if (state.playingIndex == targetIndex) "播放中" else "参考音",
-                            fontSize = 13.sp
-                        )
+                        if (isPlayingTarget) {
+                            StopSquareIcon(color = Danger, sizeDp = 12)
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = "停止",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Danger,
+                                maxLines = 1
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = Accent
+                            )
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                text = "参考音",
+                                fontSize = 13.sp,
+                                color = Accent,
+                                maxLines = 1
+                            )
+                        }
                     }
                 } else {
                     Text(
-                        text = "目标 — · 拨弦后自动识别，点弦位可锁定",
+                        text = "目标 — · 拨弦自动识别",
                         fontSize = 13.sp,
-                        color = TextMuted
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -369,9 +395,10 @@ fun StringsSection(
     state: TunerUiState,
     onToggleLock: (Int) -> Unit,
     onPlayReference: (Int) -> Unit,
+    onStopReference: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -383,34 +410,37 @@ fun StringsSection(
                     "已锁定第${state.tuning.stringNumber(it)}弦 · 再次轻点取消"
                 } ?: "轻点弦位可锁定目标",
                 fontSize = 12.sp,
-                color = TextMuted
+                color = TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
         state.tuning.strings.forEachIndexed { index, note ->
             val isTarget = state.targetIndex == index
             val isLocked = state.lockedIndex == index
+            val isPlaying = state.playingIndex == index
+            val displayCents = if (isTarget && state.cents != null) {
+                state.cents
+            } else {
+                state.lastStringCents[index]
+            }
+            val stringInTune = displayCents != null && abs(displayCents) <= TunerViewModel.IN_TUNE_CENTS
             val isHit = isTarget && state.inTune
             val number = state.tuning.stringNumber(index)
-            val detected = state.detectedNote
-            val subtitle = when {
-                isTarget && detected != null -> "当前 ${detected.name(state.useFlats)}"
-                isLocked -> "已锁定 · 点击取消"
-                else -> "点击锁定"
-            }
 
             Surface(
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = when {
                     isHit -> Accent.copy(alpha = 0.16f)
                     isLocked -> Surface2
                     isTarget -> Surface2.copy(alpha = 0.65f)
                     else -> Surface1
                 },
-                border = if (isLocked || isHit) {
-                    BorderStroke(1.dp, Accent.copy(alpha = 0.7f))
-                } else {
-                    null
+                border = when {
+                    isPlaying -> BorderStroke(1.dp, Danger.copy(alpha = 0.65f))
+                    isLocked || isHit -> BorderStroke(1.dp, Accent.copy(alpha = 0.7f))
+                    else -> null
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -418,7 +448,7 @@ fun StringsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onToggleLock(index) }
-                        .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                        .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
@@ -428,66 +458,115 @@ fun StringsSection(
                             isLocked -> Accent.copy(alpha = 0.25f)
                             else -> Surface3
                         },
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .clickable { onPlayReference(index) },
+                                .clickable {
+                                    if (isPlaying) onStopReference() else onPlayReference(index)
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = number.toString(),
-                                fontSize = 18.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isHit) Color(0xFF04211A) else TextMain
                             )
                         }
                     }
 
-                    Column(
+                    Row(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 12.dp)
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = note.name(state.useFlats),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isTarget || isLocked || stringInTune) TextMain else TextMuted,
+                            maxLines = 1
+                        )
+                        if (isLocked) {
+                            Spacer(Modifier.width(8.dp))
                             Text(
-                                text = note.name(state.useFlats),
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isTarget) TextMain else TextMuted
+                                text = "已锁定",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Accent,
+                                maxLines = 1
                             )
-                            if (isLocked) {
-                                Spacer(Modifier.width(8.dp))
-                                Text("锁定", fontSize = 11.sp, color = Accent)
-                            }
                         }
-                        Text(text = subtitle, fontSize = 12.sp, color = TextMuted)
                     }
 
                     Text(
-                        text = if (isTarget) formatCents(state.cents) else "—",
-                        fontSize = 16.sp,
+                        text = formatCents(displayCents),
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = when {
-                            isHit -> Accent
-                            isTarget && state.cents != null -> Warm
-                            else -> TextMuted.copy(alpha = 0.55f)
-                        }
+                            displayCents == null -> TextMuted.copy(alpha = 0.55f)
+                            stringInTune -> Accent
+                            displayCents > 0 -> Warm
+                            else -> InfoBlue
+                        },
+                        maxLines = 1
                     )
 
-                    IconButton(onClick = { onPlayReference(index) }) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "播放${note.name(state.useFlats)}参考音",
-                            modifier = Modifier.size(22.dp),
-                            tint = if (state.playingIndex == index) Accent else TextMuted
-                        )
+                    Spacer(Modifier.width(4.dp))
+
+                    if (isPlaying) {
+                        Surface(
+                            onClick = onStopReference,
+                            shape = RoundedCornerShape(10.dp),
+                            color = Danger.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, Danger.copy(alpha = 0.55f)),
+                            modifier = Modifier.padding(end = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                StopSquareIcon(color = Danger, sizeDp = 10)
+                                Text(
+                                    text = "停止",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Danger,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { onPlayReference(index) },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "循环播放${note.name(state.useFlats)}参考音",
+                                modifier = Modifier.size(20.dp),
+                                tint = TextMuted
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun StopSquareIcon(color: Color, sizeDp: Int) {
+    Box(
+        modifier = Modifier
+            .size(sizeDp.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(color)
+    )
 }
 
 // ------------------------------------------------------------------ 权限 / 错误

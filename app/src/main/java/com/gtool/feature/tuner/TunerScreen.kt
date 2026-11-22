@@ -134,17 +134,19 @@ fun TunerScreen() {
         PitchPanel(
             state = state,
             hasPermission = hasPermission,
-            onPlayTarget = tunerViewModel::playReference
+            onPlayTarget = tunerViewModel::playReference,
+            onStopReference = tunerViewModel::stopReference
         )
 
         StringsSection(
             state = state,
             onToggleLock = tunerViewModel::toggleStringLock,
-            onPlayReference = tunerViewModel::playReference
+            onPlayReference = tunerViewModel::playReference,
+            onStopReference = tunerViewModel::stopReference
         )
 
         Text(
-            text = "提示：轻点弦位可锁定目标弦；点弦号或 ▶ 播放 2 秒参考音。" +
+            text = "提示：轻点弦位可锁定目标弦；点弦号或 ▶ 循环播放参考音，点击 ■ 停止。" +
                 "内置调弦不可修改，可在「调弦管理」里另存为自定义。",
             fontSize = 12.sp,
             color = TextMuted.copy(alpha = 0.85f),
