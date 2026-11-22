@@ -49,4 +49,41 @@ object TuningLibrary {
         (builtIns + custom).firstOrNull { it.id == id } ?: STANDARD
 
     fun all(custom: List<Tuning>): List<Tuning> = builtIns + custom
+
+    /**
+     * 按用户自定义顺序排列全部调弦（内置 + 自定义混合排序）。
+     * - [order] 为空时保持默认顺序（内置在前、自定义在后）；
+     * - 自动忽略已删除或重复的 id；
+     * - 未出现在 [order] 中的新增调弦追加到末尾。
+     */
+    fun orderedAll(custom: List<Tuning>, order: List<String>): List<Tuning> {
+        val available = builtIns + custom
+        if (order.isEmpty()) return available
+        val byId = available.associateBy { it.id }
+        val result = ArrayList<Tuning>(available.size)
+        val seen = HashSet<String>(available.size)
+        for (id in order) {
+            val tuning = byId[id]
+            if (tuning != null && seen.add(id)) {
+                result.add(tuning)
+            }
+        }
+        for (tuning in available) {
+            if (seen.add(tuning.id)) {
+                result.add(tuning)
+            }
+        }
+        return result
+    }
+
+    /** 将列表中 [fromIndex] 位置的项移动到 [toIndex]，越界或同位置时返回原列表。 */
+    fun <T> moveItem(items: List<T>, fromIndex: Int, toIndex: Int): List<T> {
+        if (fromIndex == toIndex || fromIndex !in items.indices || toIndex !in items.indices) {
+            return items
+        }
+        val mutable = items.toMutableList()
+        val item = mutable.removeAt(fromIndex)
+        mutable.add(toIndex, item)
+        return mutable
+    }
 }

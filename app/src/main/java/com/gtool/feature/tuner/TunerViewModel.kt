@@ -91,6 +91,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
 
     private var a4Override: Double? = null
     private var flatsOverride: Boolean? = null
+    private var tuningOrderOverride: List<String>? = null
     private var askedForPermission = false
 
     init {
@@ -110,11 +111,18 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 if (pendingFlats != null && appState.settings.useFlats == pendingFlats) {
                     flatsOverride = null
                 }
+                val pendingOrder = tuningOrderOverride
+                if (pendingOrder != null && appState.allTunings.map { it.id } == pendingOrder) {
+                    tuningOrderOverride = null
+                }
+                val resolvedAll = tuningOrderOverride?.let { order ->
+                    TuningLibrary.orderedAll(appState.customTunings, order)
+                } ?: appState.allTunings
                 _state.update { current ->
                     current.copy(
                         tuning = appState.activeTuning,
-                        customTunings = appState.customTunings,
-                        allTunings = appState.allTunings,
+                        customTunings = resolvedAll.filterNot { it.builtIn },
+                        allTunings = resolvedAll,
                         a4 = a4Override ?: appState.settings.a4,
                         useFlats = flatsOverride ?: appState.settings.useFlats
                     )
@@ -421,6 +429,8 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
             strings = base.strings.toList(),
             builtIn = false
         )
+        val nextOrder = _state.value.allTunings.map { it.id } + custom.id
+        tuningOrderOverride = nextOrder
         _state.update { current ->
             current.copy(
                 tuning = custom,
@@ -432,6 +442,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             repository.upsertTuning(custom)
+            repository.reorderTunings(nextOrder)
             repository.setActiveTuning(custom.id)
         }
     }
@@ -467,6 +478,8 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         if (tuning.builtIn) return
         stopReference()
         val wasActive = _state.value.tuning.id == tuning.id
+        val nextOrder = _state.value.allTunings.filterNot { it.id == tuning.id }.map { it.id }
+        tuningOrderOverride = nextOrder
         _state.update { current ->
             val customs = current.customTunings.filterNot { it.id == tuning.id }
             val all = current.allTunings.filterNot { it.id == tuning.id }
@@ -486,6 +499,24 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             if (wasActive) repository.setActiveTuning(TuningLibrary.STANDARD.id)
             repository.deleteTuning(tuning.id)
+        }
+    }
+
+    /** 保存调弦列表的新排序（内置与自定义统一排序，全局调音器/和弦页同步生效）。 */
+    fun reorderTunings(orderedIds: List<String>) {
+        val current = _state.value
+        val reordered = TuningLibrary.orderedAll(current.customTunings, orderedIds)
+        val resolvedIds = reordered.map { it.id }
+        if (resolvedIds == current.allTunings.map { it.id }) return
+        tuningOrderOverride = resolvedIds
+        _state.update { state ->
+            state.copy(
+                allTunings = reordered,
+                customTunings = reordered.filterNot { it.builtIn }
+            )
+        }
+        viewModelScope.launch {
+            repository.reorderTunings(resolvedIds)
         }
     }
 

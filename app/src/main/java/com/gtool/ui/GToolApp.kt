@@ -98,7 +98,7 @@ private fun GToolAppShell(
         }
     }
 
-    val hideNavChrome = currentRoute == "metronome" && (
+    val hideNavChrome = (currentRoute == "metronome" || currentRoute == "tuner") && (
         postureState.posture == AppPosture.LANDSCAPE_COMPACT ||
             postureState.posture == AppPosture.TABLETOP
         )

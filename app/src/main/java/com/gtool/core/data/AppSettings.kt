@@ -37,6 +37,8 @@ data class AppSettings(
     val showNoteNamesOnFretboard: Boolean = true,
     /** 分解和弦拨弦顺序（弦号 1–6，默认 53231323）。 */
     val arpeggioPattern: String = "53231323",
+    /** 调弦列表自定义显示顺序（按 Tuning.id 排列；为空表示使用默认顺序）。 */
+    val tuningOrder: List<String> = emptyList(),
     val metronome: MetronomeSettings = MetronomeSettings()
 )
 
@@ -45,7 +47,7 @@ data class AppState(
     val customTunings: List<com.gtool.core.music.Tuning> = emptyList()
 ) {
     val allTunings: List<com.gtool.core.music.Tuning>
-        get() = com.gtool.core.music.TuningLibrary.all(customTunings)
+        get() = com.gtool.core.music.TuningLibrary.orderedAll(customTunings, settings.tuningOrder)
 
     val activeTuning: com.gtool.core.music.Tuning
         get() = com.gtool.core.music.TuningLibrary.find(settings.lastTuningId, customTunings)

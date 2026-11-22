@@ -1,15 +1,23 @@
 package com.gtool.feature.tuner
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -26,26 +34,41 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.gtool.core.music.Note
 import com.gtool.core.music.PitchClass
 import com.gtool.core.music.Tuning
+import com.gtool.core.music.TuningLibrary
 import com.gtool.ui.theme.Accent
 import com.gtool.ui.theme.Danger
+import com.gtool.ui.theme.InfoBlue
 import com.gtool.ui.theme.Surface1
 import com.gtool.ui.theme.Surface2
+import com.gtool.ui.theme.Surface3
 import com.gtool.ui.theme.TextMain
 import com.gtool.ui.theme.TextMuted
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 // ------------------------------------------------------------------ 调弦选择
@@ -65,12 +88,11 @@ fun TuningPickerDialog(
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 380.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                DialogSectionLabel("内置")
-                tunings.filter { it.builtIn }.forEach { tuning ->
+                tunings.forEach { tuning ->
                     TuningPickRow(
                         tuning = tuning,
                         active = tuning.id == activeId,
@@ -78,22 +100,10 @@ fun TuningPickerDialog(
                         onSelect = { onSelect(tuning) }
                     )
                 }
-                val customs = tunings.filterNot { it.builtIn }
-                if (customs.isNotEmpty()) {
-                    DialogSectionLabel("自定义")
-                    customs.forEach { tuning ->
-                        TuningPickRow(
-                            tuning = tuning,
-                            active = tuning.id == activeId,
-                            useFlats = useFlats,
-                            onSelect = { onSelect(tuning) }
-                        )
-                    }
-                }
             }
         },
         confirmButton = {
-            TextButton(onClick = onManage) { Text("管理调弦") }
+            TextButton(onClick = onManage) { Text("管理 / 排序") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("关闭") }
@@ -124,16 +134,34 @@ private fun TuningPickRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = tuning.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (active) Accent else TextMain
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = tuning.name,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (active) Accent else TextMain,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (!tuning.builtIn) {
+                        Text(
+                            text = "自定义",
+                            fontSize = 10.sp,
+                            color = InfoBlue,
+                            maxLines = 1
+                        )
+                    }
+                }
                 Text(
                     text = tuning.joinedNames(useFlats),
                     fontSize = 12.sp,
-                    color = TextMuted
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             if (active) {
@@ -148,7 +176,7 @@ private fun TuningPickRow(
     }
 }
 
-// ------------------------------------------------------------------ 调弦管理
+// ------------------------------------------------------------------ 调弦管理（支持拖动排序）
 
 @Composable
 fun TuningManagerDialog(
@@ -157,49 +185,154 @@ fun TuningManagerDialog(
     useFlats: Boolean,
     activeIsBuiltIn: Boolean,
     onSelect: (Tuning) -> Unit,
+    onReorder: (List<String>) -> Unit,
     onCreate: () -> Unit,
     onEdit: (Tuning) -> Unit,
     onDelete: (Tuning) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var localTunings by remember { mutableStateOf(tunings) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var draggingOffsetY by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(tunings, draggingId) {
+        if (draggingId == null) {
+            localTunings = tunings
+        }
+    }
+
+    val lazyListState = rememberLazyListState()
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val edgeThresholdPx = with(density) { 44.dp.toPx() }
+    val autoScrollStepPx = with(density) { 10.dp.toPx() }
+
+    val latestTunings by rememberUpdatedState(localTunings)
+    val latestOnReorder by rememberUpdatedState(onReorder)
+
+    fun swapIfNeeded(draggedKey: String) {
+        val visibleItems = lazyListState.layoutInfo.visibleItemsInfo
+        val currentInfo = visibleItems.firstOrNull { it.key == draggedKey } ?: return
+        val startOffset = currentInfo.offset + draggingOffsetY
+        val middleOffset = startOffset + currentInfo.size / 2f
+
+        val targetItem = visibleItems.firstOrNull { item ->
+            item.key != draggedKey &&
+                middleOffset >= item.offset &&
+                middleOffset <= item.offset + item.size
+        } ?: return
+
+        val currentList = localTunings
+        val fromIndex = currentList.indexOfFirst { it.id == draggedKey }
+        val toIndex = currentList.indexOfFirst { it.id == targetItem.key }
+        if (fromIndex < 0 || toIndex < 0 || fromIndex == toIndex) return
+
+        val deltaOffset = (targetItem.offset - currentInfo.offset).toFloat()
+        val firstVisibleIndex = lazyListState.firstVisibleItemIndex
+        val firstVisibleScrollOffset = lazyListState.firstVisibleItemScrollOffset
+
+        localTunings = TuningLibrary.moveItem(currentList, fromIndex, toIndex)
+        draggingOffsetY -= deltaOffset
+
+        // 防止交换首项时 LazyColumn 锚点跟随首项自动滚动跳动
+        if (fromIndex == firstVisibleIndex || toIndex == firstVisibleIndex) {
+            lazyListState.requestScrollToItem(firstVisibleIndex, firstVisibleScrollOffset)
+        }
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+
+    // 拖动至列表顶部/底部边缘时自动平缓滚动
+    LaunchedEffect(draggingId) {
+        val activeKey = draggingId ?: return@LaunchedEffect
+        while (draggingId == activeKey) {
+            val layoutInfo = lazyListState.layoutInfo
+            val currentInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.key == activeKey }
+            if (currentInfo != null) {
+                val itemTop = currentInfo.offset + draggingOffsetY
+                val itemBottom = itemTop + currentInfo.size
+                val scrollDelta = when {
+                    itemTop < layoutInfo.viewportStartOffset + edgeThresholdPx -> -autoScrollStepPx
+                    itemBottom > layoutInfo.viewportEndOffset - edgeThresholdPx -> autoScrollStepPx
+                    else -> 0f
+                }
+                if (scrollDelta != 0f) {
+                    val consumed = lazyListState.scrollBy(scrollDelta)
+                    if (consumed != 0f) {
+                        swapIfNeeded(activeKey)
+                    }
+                }
+            }
+            delay(16)
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("调弦管理", color = TextMain) },
         text = {
-            Column(
-                modifier = Modifier
-                    .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                DialogSectionLabel("内置（只读，可另存为自定义）")
-                tunings.filter { it.builtIn }.forEach { tuning ->
-                    ManageTuningRow(
-                        tuning = tuning,
-                        active = tuning.id == activeId,
-                        useFlats = useFlats,
-                        onSelect = { onSelect(tuning) },
-                        onEdit = null,
-                        onDelete = null
-                    )
-                }
-                val customs = tunings.filterNot { it.builtIn }
-                DialogSectionLabel("自定义")
-                if (customs.isEmpty()) {
-                    Text(
-                        text = "还没有自定义调弦，点下方按钮基于当前调弦创建。",
-                        fontSize = 12.sp,
-                        color = TextMuted
-                    )
-                } else {
-                    customs.forEach { tuning ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "按住左侧圆点手柄上下拖动排序；内置调弦不可修改，可另存为自定义。",
+                    fontSize = 12.sp,
+                    color = TextMuted,
+                    lineHeight = 17.sp
+                )
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(items = localTunings, key = { it.id }) { tuning ->
+                        val isDragging = draggingId == tuning.id
+                        val rowModifier = if (isDragging) {
+                            Modifier
+                                .zIndex(1f)
+                                .graphicsLayer {
+                                    translationY = draggingOffsetY
+                                    scaleX = 1.02f
+                                    scaleY = 1.02f
+                                }
+                        } else {
+                            Modifier.animateItem()
+                        }
+
                         ManageTuningRow(
                             tuning = tuning,
                             active = tuning.id == activeId,
                             useFlats = useFlats,
+                            isDragging = isDragging,
                             onSelect = { onSelect(tuning) },
-                            onEdit = { onEdit(tuning) },
-                            onDelete = { onDelete(tuning) }
+                            onEdit = if (tuning.builtIn) null else ({ onEdit(tuning) }),
+                            onDelete = if (tuning.builtIn) null else ({ onDelete(tuning) }),
+                            dragHandleModifier = Modifier.pointerInput(tuning.id) {
+                                detectDragGestures(
+                                    onDragStart = {
+                                        draggingId = tuning.id
+                                        draggingOffsetY = 0f
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        draggingOffsetY += dragAmount.y
+                                        swapIfNeeded(tuning.id)
+                                    },
+                                    onDragEnd = {
+                                        val finalIds = latestTunings.map { it.id }
+                                        draggingId = null
+                                        draggingOffsetY = 0f
+                                        latestOnReorder(finalIds)
+                                    },
+                                    onDragCancel = {
+                                        val finalIds = latestTunings.map { it.id }
+                                        draggingId = null
+                                        draggingOffsetY = 0f
+                                        latestOnReorder(finalIds)
+                                    }
+                                )
+                            },
+                            modifier = rowModifier
                         )
                     }
                 }
@@ -224,52 +357,106 @@ private fun ManageTuningRow(
     tuning: Tuning,
     active: Boolean,
     useFlats: Boolean,
+    isDragging: Boolean,
     onSelect: () -> Unit,
     onEdit: (() -> Unit)?,
-    onDelete: (() -> Unit)?
+    onDelete: (() -> Unit)?,
+    dragHandleModifier: Modifier,
+    modifier: Modifier = Modifier
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = if (active) Accent.copy(alpha = 0.12f) else Surface2.copy(alpha = 0.55f),
-        modifier = Modifier.fillMaxWidth()
+        color = when {
+            isDragging -> Surface3
+            active -> Accent.copy(alpha = 0.12f)
+            else -> Surface2.copy(alpha = 0.55f)
+        },
+        border = when {
+            isDragging -> BorderStroke(1.5.dp, Accent)
+            active -> BorderStroke(1.dp, Accent.copy(alpha = 0.45f))
+            else -> null
+        },
+        shadowElevation = if (isDragging) 8.dp else 0.dp,
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onSelect)
-                .padding(start = 12.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+                .clickable(enabled = !isDragging, onClick = onSelect)
+                .padding(start = 4.dp, end = 2.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = tuning.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (active) Accent else TextMain
-                )
-                Text(
-                    text = tuning.joinedNames(useFlats),
-                    fontSize = 12.sp,
-                    color = TextMuted
+            // 左侧拖动手柄（扩大触控区，按住即可立刻上下拖动）
+            Box(
+                modifier = dragHandleModifier
+                    .width(34.dp)
+                    .height(42.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                DragHandleDotsIcon(
+                    color = if (isDragging) Accent else TextMuted.copy(alpha = 0.75f)
                 )
             }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 4.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        text = tuning.name,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (active) Accent else TextMain,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (!tuning.builtIn) {
+                        Text(
+                            text = "自定义",
+                            fontSize = 10.sp,
+                            color = InfoBlue,
+                            maxLines = 1
+                        )
+                    }
+                }
+                Text(
+                    text = tuning.joinedNames(useFlats),
+                    fontSize = 11.sp,
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
             if (onEdit != null) {
-                IconButton(onClick = onEdit) {
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Edit,
                         contentDescription = "编辑${tuning.name}",
                         tint = TextMuted,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
             if (onDelete != null) {
-                IconButton(onClick = onDelete) {
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "删除${tuning.name}",
                         tint = Danger.copy(alpha = 0.85f),
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -280,6 +467,20 @@ private fun ManageTuningRow(
                     color = TextMuted.copy(alpha = 0.7f),
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DragHandleDotsIcon(color: Color) {
+    Canvas(modifier = Modifier.size(width = 12.dp, height = 18.dp)) {
+        val radius = 1.6.dp.toPx()
+        val colX = listOf(size.width * 0.25f, size.width * 0.75f)
+        val rowY = listOf(size.height * 0.18f, size.height * 0.5f, size.height * 0.82f)
+        for (y in rowY) {
+            for (x in colX) {
+                drawCircle(color = color, radius = radius, center = Offset(x, y))
             }
         }
     }
@@ -304,7 +505,7 @@ fun TuningEditorDialog(
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 440.dp)
+                    .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -615,16 +816,5 @@ fun A4Dialog(
         containerColor = Surface1,
         titleContentColor = TextMain,
         textContentColor = TextMuted
-    )
-}
-
-@Composable
-private fun DialogSectionLabel(text: String) {
-    Text(
-        text = text,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = TextMuted,
-        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
     )
 }

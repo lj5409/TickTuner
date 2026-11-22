@@ -74,6 +74,30 @@ class AppRepository(private val context: Context) {
         context.gtoolStore.edit { prefs ->
             val current = decodeTunings(prefs[Keys.CUSTOM_TUNINGS]).filterNot { it.id == id }
             prefs[Keys.CUSTOM_TUNINGS] = encodeTunings(current)
+            val currentSettings = decodeSettings(prefs[Keys.SETTINGS])
+            if (id in currentSettings.tuningOrder) {
+                prefs[Keys.SETTINGS] = json.encodeToString(
+                    AppSettings.serializer(),
+                    currentSettings.copy(tuningOrder = currentSettings.tuningOrder.filterNot { it == id })
+                )
+            }
+        }
+    }
+
+    suspend fun reorderTunings(orderedIds: List<String>) {
+        context.gtoolStore.edit { prefs ->
+            val cleanOrder = orderedIds.distinct()
+            val currentSettings = decodeSettings(prefs[Keys.SETTINGS])
+            prefs[Keys.SETTINGS] = json.encodeToString(
+                AppSettings.serializer(),
+                currentSettings.copy(tuningOrder = cleanOrder)
+            )
+            val customs = decodeTunings(prefs[Keys.CUSTOM_TUNINGS])
+            if (customs.size > 1) {
+                val orderIndex = cleanOrder.withIndex().associate { it.value to it.index }
+                val sortedCustoms = customs.sortedBy { orderIndex[it.id] ?: Int.MAX_VALUE }
+                prefs[Keys.CUSTOM_TUNINGS] = encodeTunings(sortedCustoms)
+            }
         }
     }
 
