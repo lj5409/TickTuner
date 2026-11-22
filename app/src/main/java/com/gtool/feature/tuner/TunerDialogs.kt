@@ -79,7 +79,7 @@ fun TuningPickerDialog(
     activeId: String,
     useFlats: Boolean,
     onSelect: (Tuning) -> Unit,
-    onManage: () -> Unit,
+    onManage: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -103,10 +103,16 @@ fun TuningPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onManage) { Text("管理 / 排序") }
+            if (onManage != null) {
+                TextButton(onClick = onManage) { Text("管理 / 排序") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("关闭") }
+            }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+        dismissButton = if (onManage != null) {
+            { TextButton(onClick = onDismiss) { Text("关闭") } }
+        } else {
+            null
         },
         containerColor = Surface1,
         titleContentColor = TextMain,

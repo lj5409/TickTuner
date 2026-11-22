@@ -103,19 +103,15 @@ fun AcousticHomeView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "吉他声学分析",
-                    color = TextMain,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "敲击 FFT 频谱采集 · 模态体检 · 曲线对比",
-                    color = TextMuted,
-                    fontSize = 12.sp
-                )
-            }
+            Text(
+                text = "吉他声学分析",
+                color = TextMain,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (state.summaries.size >= 2) {
                     OutlinedButton(

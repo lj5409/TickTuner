@@ -256,4 +256,151 @@ class VoicingGeneratorTest {
             secondResult.any { it.frets[0] == 0 }
         )
     }
+
+    @Test
+    fun all216ChordsIncludeRequiredCharacteristicTones() {
+        for (root in PitchClass.entries) {
+            for (quality in ChordQuality.entries) {
+                val chord = Chord(root, quality)
+                val voicings = VoicingGenerator.generate(chord, standard, capo = 0, limit = 5)
+                assertTrue("${chord.displayName} 应至少 3 个指法", voicings.size >= 3)
+                for (voicing in voicings) {
+                    val pcs = voicing.soundedStrings.map { i ->
+                        PitchClass.of(standard.strings[i].midi + voicing.frets[i])
+                    }.toSet()
+                    for (required in chord.requiredPitchClasses) {
+                        assertTrue(
+                            "${chord.displayName} ${voicing.frets} 缺少必需特征音 $required，实际音级=$pcs",
+                            required in pcs
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun extendedChordsNeverRecommendPlainMajorTriad() {
+        val plainC = listOf(-1, 3, 2, 0, 1, 0)
+        for (quality in listOf(
+            ChordQuality.DOM7,
+            ChordQuality.MAJ7,
+            ChordQuality.SIX,
+            ChordQuality.ADD9,
+            ChordQuality.NINE,
+            ChordQuality.MAJ9
+        )) {
+            val chord = Chord(PitchClass.C, quality)
+            val voicings = VoicingGenerator.generate(chord, standard, capo = 0, limit = 5)
+            assertTrue("${chord.displayName} 应生成指法", voicings.isNotEmpty())
+            assertTrue(
+                "${chord.displayName} 不应把普通 C 大三 $plainC 混入推荐指法，实际=${voicings.map { it.frets }}",
+                voicings.none { it.frets == plainC }
+            )
+        }
+    }
+
+    @Test
+    fun barreChordsNeverLeaveOpenStringsAboveBarre() {
+        for (capo in listOf(0, 2, 5)) {
+            for (root in PitchClass.entries) {
+                for (quality in ChordQuality.entries) {
+                    val chord = Chord(root, quality)
+                    val voicings = VoicingGenerator.generate(chord, standard, capo = capo, limit = 5)
+                    for (voicing in voicings) {
+                        val barreIndices = voicing.fingers.indices.filter {
+                            voicing.fingers[it] == 1 && voicing.frets[it] > 0
+                        }
+                        if (barreIndices.size >= 2) {
+                            val first = barreIndices.first()
+                            val last = barreIndices.last()
+                            val barreFret = voicing.frets[first]
+                            for (i in first + 1 until last) {
+                                assertTrue(
+                                    "${chord.displayName} capo=$capo ${voicing.frets} 横按中间弦不应低于横按品",
+                                    voicing.frets[i] >= barreFret
+                                )
+                            }
+                            for (i in last + 1 until voicing.frets.size) {
+                                assertTrue(
+                                    "${chord.displayName} capo=$capo ${voicing.frets} 横按后高音弦不应为空弦 0",
+                                    voicing.frets[i] != 0
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun capoVoicingsRespectAbsoluteFretboardLimit() {
+        for (capo in 0..7) {
+            for (chord in commonChords + listOf(
+                Chord(PitchClass.C, ChordQuality.NINE),
+                Chord(PitchClass.E, ChordQuality.MIN9),
+                Chord(PitchClass.G, ChordQuality.HALF_DIM7)
+            )) {
+                val voicings = VoicingGenerator.generate(chord, standard, capo = capo, limit = 5)
+                assertTrue("${chord.displayName} capo=$capo 应生成指法", voicings.isNotEmpty())
+                for (voicing in voicings) {
+                    val maxRel = voicing.frets.maxOrNull() ?: 0
+                    assertTrue(
+                        "${chord.displayName} capo=$capo ${voicing.frets} 绝对品位 ${capo + maxRel} 超出指板上限 ${VoicingGenerator.MAX_ABSOLUTE_FRET}",
+                        capo + maxRel <= VoicingGenerator.MAX_ABSOLUTE_FRET
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun lowestSoundingNoteUsesTrueMinimumMidiForNonAscendingTuning() {
+        // 故意把 5 弦设得比 6 弦更低（模拟特殊自定义调弦）
+        val reEntrant = Tuning(
+            id = "custom_reentrant",
+            name = "Re-entrant",
+            strings = listOf(
+                Note.parse("A2")!!,
+                Note.parse("E2")!!,
+                Note.parse("D3")!!,
+                Note.parse("G3")!!,
+                Note.parse("B3")!!,
+                Note.parse("E4")!!
+            ),
+            builtIn = false
+        )
+        val voicing = Voicing(
+            frets = listOf(0, 0, 2, 2, 2, 0),
+            fingers = listOf(0, 0, 1, 2, 3, 0),
+            baseFret = 0
+        )
+        val lowest = VoicingGenerator.lowestSoundingNote(reEntrant, voicing, capo = 0)
+        assertEquals(Note.parse("E2"), lowest)
+    }
+
+    @Test
+    fun guitarSynthRespectsA4ReferenceFrequency() {
+        val synth = com.gtool.core.audio.GuitarSynth()
+        val pcm440 = synth.render(midi = 69, a4 = 440.0)
+        val pcm432 = synth.render(midi = 69, a4 = 432.0)
+        assertTrue("不同 A4 基准生成的 PCM 应存在明显频率差异", !pcm440.contentEquals(pcm432))
+
+        val detector = com.gtool.core.audio.PitchDetector(com.gtool.core.audio.GuitarSynth.SAMPLE_RATE.toDouble())
+        val win440 = pcm440.copyOfRange(2400, 2400 + 4096)
+        val win432 = pcm432.copyOfRange(2400, 2400 + 4096)
+        val det440 = detector.detect(win440)
+        val det432 = detector.detect(win432)
+        assertNotNull("A4=440 应可识别基频", det440)
+        assertNotNull("A4=432 应可识别基频", det432)
+        assertTrue(
+            "A4=440 识别频率应接近 440Hz，实际=${det440!!.frequency}",
+            kotlin.math.abs(det440.frequency - 440.0) < 3.0
+        )
+        assertTrue(
+            "A4=432 识别频率应接近 432Hz，实际=${det432!!.frequency}",
+            kotlin.math.abs(det432.frequency - 432.0) < 3.0
+        )
+    }
 }

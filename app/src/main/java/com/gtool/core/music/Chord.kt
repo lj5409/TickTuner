@@ -29,6 +29,13 @@ enum class ChordQuality(
     MIN9("m9", "小九和弦", "m9", listOf(0, 3, 7, 10, 14), listOf("1", "b3", "5", "b7", "9")),
     POWER5("5", "强力和弦", "5", listOf(0, 7), listOf("1", "5"));
 
+    /**
+     * 构成该和弦身份所必需的音程（相对根音半音数）。
+     * 四音及以上和弦中的自然纯五度（7）在吉他指法中允许省略，其余特征音不可缺失。
+     */
+    val requiredIntervals: List<Int>
+        get() = if (intervals.size >= 4) intervals.filter { it != 7 } else intervals
+
     companion object {
         fun fromId(id: String): ChordQuality? = entries.firstOrNull { it.id == id }
     }
@@ -50,6 +57,10 @@ data class Chord(val root: PitchClass, val quality: ChordQuality) {
     }
 
     val pitchClasses: List<PitchClass> = tones.map { it.pitchClass }
+
+    val requiredPitchClasses: List<PitchClass> = quality.requiredIntervals.map {
+        PitchClass.of(root.semitone + it)
+    }
 
     val displayName: String get() = root.sharpName + quality.symbol
 
