@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -37,6 +38,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -462,7 +465,7 @@ private fun AccentEditor(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(52.dp)
+                            .heightIn(min = 58.dp)
                             .clip(shape)
                             .background(background)
                             .then(
@@ -489,20 +492,34 @@ private fun AccentEditor(
                                     Modifier
                                 }
                             )
-                            .clickable { onCycle(index) },
+                            .clickable { onCycle(index) }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)
+                        ) {
                             Text(
                                 text = "${index + 1}",
-                                fontSize = 11.sp,
-                                color = contentColor.copy(alpha = 0.78f)
+                                style = TextStyle(
+                                    fontSize = 11.sp,
+                                    lineHeight = 13.sp,
+                                    color = contentColor.copy(alpha = 0.78f),
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                ),
+                                maxLines = 1
                             )
                             Text(
                                 text = label,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = contentColor
+                                style = TextStyle(
+                                    fontSize = 15.sp,
+                                    lineHeight = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = contentColor,
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                ),
+                                maxLines = 1
                             )
                         }
                     }

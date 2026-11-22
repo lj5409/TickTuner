@@ -160,17 +160,6 @@ internal fun HorizontalStackedBeatStage(
                             .weight(1f)
                             .fillMaxHeight()
                     )
-                    Text(
-                        text = accentLabelFor(level),
-                        modifier = Modifier.width(22.dp),
-                        color = accentLabelColor(level = level, active = isCurrent),
-                        style = TextStyle(
-                            fontSize = if (compactLabels) 10.sp else 11.sp,
-                            fontWeight = if (level >= 2 || isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                            textAlign = TextAlign.Center
-                        ),
-                        maxLines = 1
-                    )
                 }
             }
         }
@@ -240,16 +229,6 @@ internal fun VerticalRowBeatStage(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = accentLabelFor(level),
-                        color = accentLabelColor(level = level, active = isCurrent),
-                        style = TextStyle(
-                            fontSize = if (compactLabels) 10.sp else 11.sp,
-                            fontWeight = if (level >= 2 || isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                            textAlign = TextAlign.Center
-                        ),
-                        maxLines = 1
-                    )
                     VerticalBeatBar(
                         beatIndex = index,
                         beatsPerBar = beats,
@@ -905,16 +884,4 @@ private fun DrawScope.drawSingleSubDot(
 private fun accentLevelFor(pattern: List<Int>, index: Int): Int {
     if (pattern.isEmpty()) return if (index == 0) 2 else 1
     return pattern[index % pattern.size].coerceIn(0, 2)
-}
-
-private fun accentLabelFor(level: Int): String = when {
-    level >= 2 -> "重"
-    level == 1 -> "中"
-    else -> "静"
-}
-
-private fun accentLabelColor(level: Int, active: Boolean): Color = when {
-    level >= 2 -> if (active) Warm else Warm.copy(alpha = 0.85f)
-    level == 1 -> if (active) Accent else TextMuted
-    else -> if (active) TextMain.copy(alpha = 0.80f) else TextMuted.copy(alpha = 0.55f)
 }

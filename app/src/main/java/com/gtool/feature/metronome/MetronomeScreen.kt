@@ -96,7 +96,8 @@ fun MetronomeScreen() {
     var showStrongFlashConfirm by remember { mutableStateOf(false) }
     var avOffsetDraft by remember(settings.avOffsetMs) { mutableFloatStateOf(settings.avOffsetMs.toFloat()) }
 
-    val flashFrequency = bpm * settings.subdivision / 60f
+    // 屏幕闪烁仅跟随主节拍（不受细分影响），安全频率阈值按主拍频率计算。
+    val flashFrequency = bpm / 60f
     val dangerous = flashFrequency > 3f
     val effectiveStyle = if (dangerous && settings.flashStyle == "flash" && !strongFlashAck) {
         "pulse"
@@ -547,6 +548,7 @@ private fun TabletopMetronomeLayout(
                 containerTopInWindowPx = coords.positionInWindow().y
             }
     ) {
+        val containerWidth = maxWidth
         val hinge = postureState.hingeBounds
         val topPaneHeight = if (hinge != null && hinge.isHorizontal && hinge.topPx > 0) {
             val localTopPx = (hinge.topPx - containerTopInWindowPx).coerceAtLeast(0f)
@@ -582,53 +584,118 @@ private fun TabletopMetronomeLayout(
             // 物理铰链安全避让区
             Spacer(Modifier.height(hingeGap))
 
-            // 下半屏（折痕以下，平放桌面）：完整 BPM 调节与全部设置（可滚动）
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                MessageBanner(message)
+            // 下半屏（折痕以下，平放桌面）：完整 BPM 调节与全部设置
+            // 在大折叠宽屏（如 vivo X Fold3 Pro）下半屏采用左右双栏控制台，直接露出 BPM 与全部设置；窄屏采用单栏滚动。
+            if (containerWidth >= 560.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(0.95f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        MessageBanner(message)
 
-                SafetyBanner(
-                    dangerous = dangerous,
-                    frequency = flashFrequency,
-                    effectiveStyle = effectiveStyle,
-                    accentAllowed = settings.flashStyle == "flash" && effectiveStyle != "flash",
-                    onAllowStrongFlash = onRequestStrongFlash
-                )
+                        SafetyBanner(
+                            dangerous = dangerous,
+                            frequency = flashFrequency,
+                            effectiveStyle = effectiveStyle,
+                            accentAllowed = settings.flashStyle == "flash" && effectiveStyle != "flash",
+                            onAllowStrongFlash = onRequestStrongFlash
+                        )
 
-                BpmControlBlock(
-                    bpm = bpm,
-                    beatsPerBar = settings.beatsPerBar,
-                    beatUnit = settings.beatUnit,
-                    onBpmChange = { vm.setBpm(it) },
-                    onBpmCommit = { vm.setBpm(it, commit = true) },
-                    onNudge = vm::nudgeBpm,
-                    onTap = vm::tapTempo,
-                    onOpenNumpad = onOpenNumpad,
-                    onSelectTimeSignature = vm::setTimeSignature
-                )
+                        BpmControlBlock(
+                            bpm = bpm,
+                            beatsPerBar = settings.beatsPerBar,
+                            beatUnit = settings.beatUnit,
+                            onBpmChange = { vm.setBpm(it) },
+                            onBpmCommit = { vm.setBpm(it, commit = true) },
+                            onNudge = vm::nudgeBpm,
+                            onTap = vm::tapTempo,
+                            onOpenNumpad = onOpenNumpad,
+                            onSelectTimeSignature = vm::setTimeSignature
+                        )
+                    }
 
-                MetronomeSettingsSection(
-                    vm = vm,
-                    settings = settings,
-                    volume = volume,
-                    torchState = torchState,
-                    dangerous = dangerous,
-                    strongFlashAck = strongFlashAck,
-                    onRequestStrongFlash = onRequestStrongFlash,
-                    brightness = brightness,
-                    previewStrength = previewStrength,
-                    avOffsetDraft = avOffsetDraft,
-                    onAvOffsetChange = onAvOffsetChange,
-                    onAvOffsetCommit = onAvOffsetCommit
-                )
+                    Column(
+                        modifier = Modifier
+                            .weight(1.05f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        MetronomeSettingsSection(
+                            vm = vm,
+                            settings = settings,
+                            volume = volume,
+                            torchState = torchState,
+                            dangerous = dangerous,
+                            strongFlashAck = strongFlashAck,
+                            onRequestStrongFlash = onRequestStrongFlash,
+                            brightness = brightness,
+                            previewStrength = previewStrength,
+                            avOffsetDraft = avOffsetDraft,
+                            onAvOffsetChange = onAvOffsetChange,
+                            onAvOffsetCommit = onAvOffsetCommit
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    MessageBanner(message)
 
-                Spacer(Modifier.height(12.dp))
+                    SafetyBanner(
+                        dangerous = dangerous,
+                        frequency = flashFrequency,
+                        effectiveStyle = effectiveStyle,
+                        accentAllowed = settings.flashStyle == "flash" && effectiveStyle != "flash",
+                        onAllowStrongFlash = onRequestStrongFlash
+                    )
+
+                    BpmControlBlock(
+                        bpm = bpm,
+                        beatsPerBar = settings.beatsPerBar,
+                        beatUnit = settings.beatUnit,
+                        onBpmChange = { vm.setBpm(it) },
+                        onBpmCommit = { vm.setBpm(it, commit = true) },
+                        onNudge = vm::nudgeBpm,
+                        onTap = vm::tapTempo,
+                        onOpenNumpad = onOpenNumpad,
+                        onSelectTimeSignature = vm::setTimeSignature
+                    )
+
+                    MetronomeSettingsSection(
+                        vm = vm,
+                        settings = settings,
+                        volume = volume,
+                        torchState = torchState,
+                        dangerous = dangerous,
+                        strongFlashAck = strongFlashAck,
+                        onRequestStrongFlash = onRequestStrongFlash,
+                        brightness = brightness,
+                        previewStrength = previewStrength,
+                        avOffsetDraft = avOffsetDraft,
+                        onAvOffsetChange = onAvOffsetChange,
+                        onAvOffsetCommit = onAvOffsetCommit
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+                }
             }
         }
     }

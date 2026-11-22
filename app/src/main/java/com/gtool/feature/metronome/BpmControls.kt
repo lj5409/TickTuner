@@ -161,9 +161,162 @@ internal fun BpmNumpadDialog(
     val parsed = BpmNumpadLogic.parsedBpm(state)
     val isOutOfRange = state.text.isNotEmpty() && parsed == null
     val haptics = LocalHapticFeedback.current
-    val compactHeight = LocalConfiguration.current.screenHeightDp < 520
-    val keyHeight = if (compactHeight) 44.dp else 52.dp
-    val gridSpacing = if (compactHeight) 6.dp else 8.dp
+    val config = LocalConfiguration.current
+    val landscapeCompact = config.screenHeightDp < 540 && config.screenWidthDp > config.screenHeightDp
+    val keyHeight = if (landscapeCompact) 42.dp else 52.dp
+    val gridSpacing = if (landscapeCompact) 6.dp else 8.dp
+
+    val rows = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf("清空", "0", "⌫")
+    )
+
+    fun handleKey(label: String) {
+        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        state = when (label) {
+            "清空" -> BpmNumpadLogic.clear()
+            "⌫" -> BpmNumpadLogic.backspace(state)
+            else -> BpmNumpadLogic.inputDigit(state, label[0])
+        }
+    }
+
+    @Composable
+    fun HeaderRow() {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "输入 BPM",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextMain
+            )
+            Text(
+                text = "${MetronomeViewModel.MIN_BPM} – ${MetronomeViewModel.MAX_BPM}",
+                fontSize = 12.sp,
+                color = TextMuted
+            )
+        }
+    }
+
+    @Composable
+    fun ReadoutBox(modifier: Modifier = Modifier) {
+        Surface(
+            color = Bg,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, if (isOutOfRange) Danger else FretWire),
+            modifier = modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = if (landscapeCompact) 10.dp else 12.dp, horizontal = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = state.text.ifEmpty { "—" },
+                    fontSize = if (landscapeCompact) 36.sp else 40.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = when {
+                        isOutOfRange -> Danger
+                        state.text.isEmpty() -> TextMuted
+                        else -> Accent
+                    },
+                    maxLines = 1
+                )
+                Text(
+                    text = when {
+                        isOutOfRange -> "需在 ${MetronomeViewModel.MIN_BPM}–${MetronomeViewModel.MAX_BPM}"
+                        state.replaceOnFirstDigit -> "按数字键直接输入"
+                        else -> " "
+                    },
+                    fontSize = 11.sp,
+                    color = if (isOutOfRange) Danger else TextMuted,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+
+    @Composable
+    fun KeypadGrid(modifier: Modifier = Modifier) {
+        Column(
+            modifier = modifier,
+            verticalArrangement = Arrangement.spacedBy(gridSpacing)
+        ) {
+            rows.forEach { rowKeys ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(gridSpacing)
+                ) {
+                    rowKeys.forEach { label ->
+                        val isAction = label == "清空" || label == "⌫"
+                        Surface(
+                            onClick = { handleKey(label) },
+                            color = if (isAction) Surface3 else Surface2,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, FretWire.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(keyHeight)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = label,
+                                    fontSize = if (label == "清空") 13.sp else if (landscapeCompact) 18.sp else 20.sp,
+                                    fontWeight = if (isAction) FontWeight.Medium else FontWeight.SemiBold,
+                                    color = if (label == "清空") TextMuted else TextMain
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun ActionButtons(modifier: Modifier = Modifier) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(if (landscapeCompact) 44.dp else 48.dp),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, FretWire),
+                contentPadding = PaddingValues(horizontal = 8.dp)
+            ) {
+                Text("取消", fontSize = 14.sp, color = TextMain, maxLines = 1)
+            }
+            Button(
+                onClick = { parsed?.let(onConfirm) },
+                enabled = parsed != null,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(if (landscapeCompact) 44.dp else 48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Accent,
+                    contentColor = Color(0xFF04211A),
+                    disabledContainerColor = Surface3,
+                    disabledContentColor = TextMuted
+                ),
+                contentPadding = PaddingValues(horizontal = 8.dp)
+            ) {
+                Text("确定", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -175,147 +328,39 @@ internal fun BpmNumpadDialog(
             border = BorderStroke(1.dp, FretWire),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 12.dp)
-                .widthIn(max = 340.dp)
+                .padding(horizontal = if (landscapeCompact) 20.dp else 24.dp, vertical = 8.dp)
+                .widthIn(max = if (landscapeCompact) 500.dp else 340.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = if (compactHeight) 14.dp else 18.dp),
-                verticalArrangement = Arrangement.spacedBy(if (compactHeight) 10.dp else 14.dp)
-            ) {
+            if (landscapeCompact) {
+                // 横屏紧凑双栏：总高约 220dp，无需滑动即可直接输入 0 并点按确定
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "输入 BPM",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextMain
-                    )
-                    Text(
-                        text = "${MetronomeViewModel.MIN_BPM} – ${MetronomeViewModel.MAX_BPM}",
-                        fontSize = 12.sp,
-                        color = TextMuted
-                    )
-                }
-
-                // 数值显示框
-                Surface(
-                    color = Bg,
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, if (isOutOfRange) Danger else FretWire),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = if (compactHeight) 8.dp else 12.dp, horizontal = 14.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                        modifier = Modifier.weight(0.92f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = state.text.ifEmpty { "—" },
-                            fontSize = if (compactHeight) 32.sp else 40.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            color = when {
-                                isOutOfRange -> Danger
-                                state.text.isEmpty() -> TextMuted
-                                else -> Accent
-                            },
-                            maxLines = 1
-                        )
-                        Text(
-                            text = when {
-                                isOutOfRange -> "范围需在 ${MetronomeViewModel.MIN_BPM} – ${MetronomeViewModel.MAX_BPM} 之间"
-                                state.replaceOnFirstDigit -> "按数字键可直接重新输入"
-                                else -> " "
-                            },
-                            fontSize = 11.sp,
-                            color = if (isOutOfRange) Danger else TextMuted
-                        )
+                        HeaderRow()
+                        ReadoutBox()
+                        ActionButtons()
                     }
+                    KeypadGrid(modifier = Modifier.weight(1.18f))
                 }
-
-                // 3×4 数字键盘
-                val rows = listOf(
-                    listOf("1", "2", "3"),
-                    listOf("4", "5", "6"),
-                    listOf("7", "8", "9"),
-                    listOf("清空", "0", "⌫")
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(gridSpacing)) {
-                    rows.forEach { rowKeys ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(gridSpacing)
-                        ) {
-                            rowKeys.forEach { label ->
-                                val isAction = label == "清空" || label == "⌫"
-                                Surface(
-                                    onClick = {
-                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        state = when (label) {
-                                            "清空" -> BpmNumpadLogic.clear()
-                                            "⌫" -> BpmNumpadLogic.backspace(state)
-                                            else -> BpmNumpadLogic.inputDigit(state, label[0])
-                                        }
-                                    },
-                                    color = if (isAction) Surface3 else Surface2,
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, FretWire.copy(alpha = 0.5f)),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(keyHeight)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = label,
-                                            fontSize = if (label == "清空") 14.sp else 20.sp,
-                                            fontWeight = if (isAction) FontWeight.Medium else FontWeight.SemiBold,
-                                            color = if (label == "清空") TextMuted else TextMain
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 底部确认/取消行
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+            } else {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 18.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, FretWire)
-                    ) {
-                        Text("取消", fontSize = 15.sp, color = TextMain)
-                    }
-                    Button(
-                        onClick = { parsed?.let(onConfirm) },
-                        enabled = parsed != null,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Accent,
-                            contentColor = Color(0xFF04211A),
-                            disabledContainerColor = Surface3,
-                            disabledContentColor = TextMuted
-                        )
-                    ) {
-                        Text("确定", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
+                    HeaderRow()
+                    ReadoutBox()
+                    KeypadGrid()
+                    ActionButtons()
                 }
             }
         }

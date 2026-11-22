@@ -66,10 +66,16 @@ internal class BeatPulseState {
     var activeAccent by mutableStateOf(false)
         private set
 
-    private var pulseStartNanos = 0L
-    private var pulseLevel = 1
-    private var pulseSub = 0
-    private var primed = false
+    // 全屏屏幕闪烁仅跟随主节拍（subIndex == 0），不受细分设置影响。
+    private var screenStartNanos = 0L
+    private var screenLevel = 1
+    private var screenPrimed = false
+
+    // 拍条视觉包络跟踪全部拍点（含细分与静音拍微闪）。
+    private var barStartNanos = 0L
+    private var barLevel = 1
+    private var barSub = 0
+    private var barPrimed = false
 
     fun enqueue(event: BeatEvent) {
         // 丢弃上一轮播放残留的过期拍点。
@@ -85,70 +91,90 @@ internal class BeatPulseState {
         activeSub = 0
         activeLevel = 0
         activeAccent = false
-        pulseStartNanos = 0L
-        primed = false
+        screenStartNanos = 0L
+        screenLevel = 1
+        screenPrimed = false
+        barStartNanos = 0L
+        barLevel = 1
+        barSub = 0
+        barPrimed = false
     }
 
-    /** 每帧调用一次，返回当前强度。 */
+    /** 每帧调用一次，返回当前全屏闪烁强度（仅响应主节拍）。 */
     fun frame(frameNanos: Long, avOffsetMs: Int, style: String): Float {
         val offsetNanos = avOffsetMs.toLong() * 1_000_000L
-        var due: BeatEvent? = null
+        var dueAny: BeatEvent? = null
+        var dueMain: BeatEvent? = null
         while (true) {
             val first = queue.firstOrNull() ?: break
             if (first.nanoTime - offsetNanos <= frameNanos) {
-                due = queue.removeFirst()
+                val removed = queue.removeFirst()
+                dueAny = removed
+                if (removed.subIndex == 0) {
+                    dueMain = removed
+                }
             } else {
                 break
             }
         }
-        if (due != null) {
-            pulseStartNanos = due.nanoTime - offsetNanos
-            pulseLevel = due.level
-            pulseSub = due.subIndex
-            activeBeat = due.beatIndex
-            activeSub = due.subIndex
-            activeLevel = due.level
-            activeAccent = due.isAccent
-            primed = true
+        if (dueMain != null) {
+            screenStartNanos = dueMain.nanoTime - offsetNanos
+            screenLevel = dueMain.level
+            screenPrimed = true
         }
-        if (!primed) {
-            if (intensity != 0f) intensity = 0f
-            if (barIntensity != 0f) barIntensity = 0f
-            return 0f
+        if (dueAny != null) {
+            barStartNanos = dueAny.nanoTime - offsetNanos
+            barLevel = dueAny.level
+            barSub = dueAny.subIndex
+            activeBeat = dueAny.beatIndex
+            activeSub = dueAny.subIndex
+            activeLevel = dueAny.level
+            activeAccent = dueAny.isAccent
+            barPrimed = true
         }
-        val elapsed = (frameNanos - pulseStartNanos) / 1_000_000_000f
-        val levelScale = when {
-            pulseLevel >= 2 -> 1f
-            pulseLevel == 1 -> 0.62f
-            else -> 0f
-        }
-        val subScale = if (pulseSub > 0) 0.45f else 1f
-        val envelope = when {
-            elapsed < 0f -> 0f
-            style == "flash" -> if (elapsed < FLASH_ON_SECONDS) 1f else 0f
-            elapsed < PULSE_RISE_SECONDS -> elapsed / PULSE_RISE_SECONDS
-            else -> exp(-(elapsed - PULSE_RISE_SECONDS) / PULSE_DECAY_SECONDS)
-        }
-        val raw = envelope * levelScale * subScale
-        val value = if (raw < 0.002f) 0f else raw.coerceAtMost(1f)
-        if (value != intensity) intensity = value
 
-        // 拍条视觉包络始终平滑衰减，静音拍与细分拍也提供轻量视觉反馈。
-        val barEnvelope = when {
-            elapsed < 0f -> 0f
-            elapsed < PULSE_RISE_SECONDS -> elapsed / PULSE_RISE_SECONDS
-            else -> exp(-(elapsed - PULSE_RISE_SECONDS) / 0.14f)
+        // 1) 全屏屏幕闪烁包络：只响应主拍（subIndex == 0）
+        val screenValue = if (!screenPrimed) {
+            0f
+        } else {
+            val elapsed = (frameNanos - screenStartNanos) / 1_000_000_000f
+            val levelScale = when {
+                screenLevel >= 2 -> 1f
+                screenLevel == 1 -> 0.62f
+                else -> 0f
+            }
+            val envelope = when {
+                elapsed < 0f -> 0f
+                style == "flash" -> if (elapsed < FLASH_ON_SECONDS) 1f else 0f
+                elapsed < PULSE_RISE_SECONDS -> elapsed / PULSE_RISE_SECONDS
+                else -> exp(-(elapsed - PULSE_RISE_SECONDS) / PULSE_DECAY_SECONDS)
+            }
+            val raw = envelope * levelScale
+            if (raw < 0.002f) 0f else raw.coerceAtMost(1f)
         }
-        val barLevelScale = when {
-            pulseLevel >= 2 -> 1f
-            pulseLevel == 1 -> 0.85f
-            else -> 0.45f
+        if (screenValue != intensity) intensity = screenValue
+
+        // 2) 拍条视觉包络：平滑衰减，静音拍与细分拍也提供轻量视觉反馈
+        val barVal = if (!barPrimed) {
+            0f
+        } else {
+            val elapsed = (frameNanos - barStartNanos) / 1_000_000_000f
+            val barEnvelope = when {
+                elapsed < 0f -> 0f
+                elapsed < PULSE_RISE_SECONDS -> elapsed / PULSE_RISE_SECONDS
+                else -> exp(-(elapsed - PULSE_RISE_SECONDS) / 0.14f)
+            }
+            val barLevelScale = when {
+                barLevel >= 2 -> 1f
+                barLevel == 1 -> 0.85f
+                else -> 0.45f
+            }
+            val barSubScale = if (barSub > 0) 0.55f else 1f
+            val barRaw = barEnvelope * barLevelScale * barSubScale
+            if (barRaw < 0.002f) 0f else barRaw.coerceAtMost(1f)
         }
-        val barSubScale = if (pulseSub > 0) 0.55f else 1f
-        val barRaw = barEnvelope * barLevelScale * barSubScale
-        val barVal = if (barRaw < 0.002f) 0f else barRaw.coerceAtMost(1f)
         if (barVal != barIntensity) barIntensity = barVal
-        return value
+        return screenValue
     }
 }
 

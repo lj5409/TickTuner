@@ -1,5 +1,6 @@
 package com.gtool.ui
 
+import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,13 +21,17 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -48,19 +53,50 @@ private val tabs = listOf(
     Tab("chords", R.string.tab_chords, R.drawable.ic_chords)
 )
 
+private const val NAV_PREFS_NAME = "gtool_nav"
+private const val KEY_LAST_TAB_ROUTE = "last_tab_route"
+private const val DEFAULT_TAB_ROUTE = "tuner"
+
+internal fun resolveSavedRoute(saved: String?): String =
+    if (saved != null && tabs.any { it.route == saved }) saved else DEFAULT_TAB_ROUTE
+
 @Composable
 fun GToolApp() {
+    val context = LocalContext.current.applicationContext
+    val navPrefs = remember(context) {
+        context.getSharedPreferences(NAV_PREFS_NAME, Context.MODE_PRIVATE)
+    }
+    // 同步读取上次离开时的页面作为冷启动首屏，零闪烁且避免误触发调音器麦克风权限。
+    val startDestination = remember(navPrefs) {
+        resolveSavedRoute(navPrefs.getString(KEY_LAST_TAB_ROUTE, null))
+    }
     val navController = rememberNavController()
     ProvideWindowPosture {
-        GToolAppShell(navController = navController)
+        GToolAppShell(
+            navController = navController,
+            startDestination = startDestination,
+            onPersistRoute = { route ->
+                navPrefs.edit { putString(KEY_LAST_TAB_ROUTE, route) }
+            }
+        )
     }
 }
 
 @Composable
-private fun GToolAppShell(navController: NavHostController) {
+private fun GToolAppShell(
+    navController: NavHostController,
+    startDestination: String,
+    onPersistRoute: (String) -> Unit
+) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val postureState = LocalWindowPosture.current
+
+    LaunchedEffect(currentRoute) {
+        if (currentRoute != null && tabs.any { it.route == currentRoute }) {
+            onPersistRoute(currentRoute)
+        }
+    }
 
     val hideNavChrome = currentRoute == "metronome" && (
         postureState.posture == AppPosture.LANDSCAPE_COMPACT ||
@@ -70,6 +106,7 @@ private fun GToolAppShell(navController: NavHostController) {
 
     val onSelectTab: (String, Boolean) -> Unit = { route, selected ->
         if (!selected) {
+            onPersistRoute(route)
             navController.navigate(route) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                 launchSingleTop = true
@@ -114,7 +151,7 @@ private fun GToolAppShell(navController: NavHostController) {
             ) {
                 NavHost(
                     navController = navController,
-                    startDestination = "tuner",
+                    startDestination = startDestination,
                     modifier = Modifier.fillMaxSize()
                 ) {
                     composable("tuner") { TunerScreen() }
