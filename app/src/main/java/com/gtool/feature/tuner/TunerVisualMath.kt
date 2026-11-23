@@ -179,15 +179,25 @@ data class HeadstockGeometry(
     }
 }
 
-fun computeHeadstockGeometry(width: Float, height: Float, stringCount: Int): HeadstockGeometry {
+/** 横屏专注模式下顶部调弦切换胶囊预留的顶部安全间距（dp），避免调弦按钮遮挡琴头。 */
+const val HEADSTOCK_BADGE_TOP_INSET_DP: Float = 36f
+
+fun computeHeadstockGeometry(
+    width: Float,
+    height: Float,
+    stringCount: Int,
+    topInset: Float = 0f
+): HeadstockGeometry {
     val w = width.coerceAtLeast(120f)
     val h = height.coerceAtLeast(120f)
+    val inset = topInset.coerceIn(0f, h * 0.25f)
+    val availH = (h - inset).coerceAtLeast(96f)
     val slots = headstockPegSlots(stringCount.coerceAtLeast(1))
     val rows = (slots.maxOfOrNull { it.row } ?: 0) + 1
 
     val gap = 6f
     val neckRatio = 0.24f
-    val heightBudget = h * 0.96f / (1f + neckRatio)
+    val heightBudget = availH * 0.96f / (1f + neckRatio)
 
     // 标签尺寸：受行距与宽度约束，保证 ≥ 40（接近 48 触控目标）
     val provisionalSpacing = heightBudget * 0.6f / max(rows - 1, 1)
@@ -198,7 +208,7 @@ fun computeHeadstockGeometry(width: Float, height: Float, stringCount: Int): Hea
     val bodyHeight = min(heightBudget, topWidth * 2.0f)
     val neckLength = (bodyHeight * neckRatio).coerceAtLeast(20f)
     val total = bodyHeight + neckLength
-    val bodyTop = ((h - total) / 2f).coerceAtLeast(0f)
+    val bodyTop = (inset + (availH - total) / 2f).coerceAtLeast(inset)
     val nutY = bodyTop + bodyHeight
     val cornerY = bodyTop + bodyHeight * 0.06f
     val nutWidth = topWidth * 0.58f

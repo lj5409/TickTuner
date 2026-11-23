@@ -67,9 +67,15 @@ fun GuitarHeadstock(
     showTuningBadge: Boolean = false
 ) {
     val strings = state.tuning.strings
+    val topInsetDp = if (showTuningBadge) HEADSTOCK_BADGE_TOP_INSET_DP else 0f
     BoxWithConstraints(modifier) {
-        val geo = remember(maxWidth, maxHeight, strings.size) {
-            computeHeadstockGeometry(maxWidth.value, maxHeight.value, strings.size)
+        val geo = remember(maxWidth, maxHeight, strings.size, topInsetDp) {
+            computeHeadstockGeometry(
+                width = maxWidth.value,
+                height = maxHeight.value,
+                stringCount = strings.size,
+                topInset = topInsetDp
+            )
         }
 
         val stringZone: (Int) -> CentsZone? = { index ->
