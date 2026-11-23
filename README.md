@@ -14,9 +14,9 @@
 
 ## 界面预览
 
-| 调音器 | 节拍器 | 和弦 |
-|---|---|---|
-| <img src="docs/screenshots/tuner.png" width="250" /> | <img src="docs/screenshots/metronome.png" width="250" /> | <img src="docs/screenshots/chords.png" width="250" /> |
+| 调音器 | 节拍器 | 和弦 | 声学分析 |
+|---|---|---|---|
+| <img src="docs/screenshots/tuner.png" width="210" /> | <img src="docs/screenshots/metronome.png" width="210" /> | <img src="docs/screenshots/chords.png" width="210" /> | <img src="docs/screenshots/acoustic.jpg" width="210" /> |
 ## 功能
 
 ### 调音器
