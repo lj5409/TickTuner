@@ -76,6 +76,7 @@ fun AcousticCaptureView(
     state: AcousticUiState,
     onBackToPrep: () -> Unit,
     onRequestPermission: () -> Unit,
+    onStartMeasurement: () -> Unit,
     onTogglePause: () -> Unit,
     onResetStep: () -> Unit,
     onRemoveTap: (Int) -> Unit,
@@ -209,7 +210,7 @@ fun AcousticCaptureView(
             ) {
                 Column(
                     modifier = Modifier
-                        .weight(0.95f)
+                        .weight(1f)
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -218,24 +219,30 @@ fun AcousticCaptureView(
                         position = pos,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(220.dp)
+                            .height(235.dp)
                     )
-                    StepInstructionCard(pos)
                 }
                 Column(
                     modifier = Modifier
-                        .weight(1.05f)
+                        .weight(1f)
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    CaptureTelemetryCard(
-                        state = state,
-                        snap = snap,
-                        onTogglePause = onTogglePause,
-                        onResetStep = onResetStep,
-                        onRemoveTap = onRemoveTap
-                    )
+                    if (!state.stepMeasurementStarted) {
+                        PreMeasureInstructionCard(
+                            pos = pos,
+                            onStart = onStartMeasurement
+                        )
+                    } else {
+                        CaptureTelemetryCard(
+                            state = state,
+                            snap = snap,
+                            onTogglePause = onTogglePause,
+                            onResetStep = onResetStep,
+                            onRemoveTap = onRemoveTap
+                        )
+                    }
                 }
             }
         } else {
@@ -250,16 +257,22 @@ fun AcousticCaptureView(
                     position = pos,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(205.dp)
+                        .height(225.dp)
                 )
-                StepInstructionCard(pos)
-                CaptureTelemetryCard(
-                    state = state,
-                    snap = snap,
-                    onTogglePause = onTogglePause,
-                    onResetStep = onResetStep,
-                    onRemoveTap = onRemoveTap
-                )
+                if (!state.stepMeasurementStarted) {
+                    PreMeasureInstructionCard(
+                        pos = pos,
+                        onStart = onStartMeasurement
+                    )
+                } else {
+                    CaptureTelemetryCard(
+                        state = state,
+                        snap = snap,
+                        onTogglePause = onTogglePause,
+                        onResetStep = onResetStep,
+                        onRemoveTap = onRemoveTap
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -267,26 +280,44 @@ fun AcousticCaptureView(
         // 底部导航动作区
         CaptureBottomActionBar(
             pos = pos,
+            started = state.stepMeasurementStarted,
             snap = snap,
+            onStartMeasurement = onStartMeasurement,
             onConfirmNext = onConfirmNext,
             onSkipOptionalStep = onSkipOptionalStep
         )
     }
 }
 
+/** 开始检测前显示的敲击动作与拾音说明卡；点击卡片或底部按钮后立即开始测量并收起。 */
 @Composable
-private fun StepInstructionCard(pos: TapPosition) {
+private fun PreMeasureInstructionCard(
+    pos: TapPosition,
+    onStart: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(Surface1)
-            .border(1.dp, FretWire.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .border(1.dp, Accent.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
+            .clickable(onClick = onStart)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("敲击动作：${pos.instruction}", color = TextMain, fontSize = 13.sp, lineHeight = 18.sp)
-        Text("拾音位置：${pos.micPlacement}", color = TextMuted, fontSize = 12.sp, lineHeight = 17.sp)
+        Text(
+            text = "步骤 ${pos.stepIndex} 敲击与拾音指引",
+            color = Accent,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text("敲击动作：${pos.instruction}", color = TextMain, fontSize = 13.sp, lineHeight = 19.sp)
+        Text("拾音位置：${pos.micPlacement}", color = TextMuted, fontSize = 12.sp, lineHeight = 18.sp)
+        Text(
+            text = "点击本卡片或下方按钮开始测量（说明将自动收起）",
+            color = InfoBlue,
+            fontSize = 11.sp
+        )
     }
 }
 
@@ -558,7 +589,9 @@ private fun LiveMiniSpectrumPreview(
 @Composable
 private fun CaptureBottomActionBar(
     pos: TapPosition,
+    started: Boolean,
     snap: TapCaptureProcessor.Snapshot,
+    onStartMeasurement: () -> Unit,
     onConfirmNext: (allowOverride: Boolean) -> Unit,
     onSkipOptionalStep: () -> Unit
 ) {
@@ -574,7 +607,7 @@ private fun CaptureBottomActionBar(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (fullCount && !passed) {
+        if (started && fullCount && !passed) {
             OutlinedButton(
                 onClick = { onConfirmNext(true) },
                 shape = RoundedCornerShape(10.dp),
@@ -598,37 +631,54 @@ private fun CaptureBottomActionBar(
                     onClick = onSkipOptionalStep,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
-                        .weight(0.9f)
+                        .weight(1f)
                         .height(48.dp)
                 ) {
-                    Text("跳过封音孔", color = InfoBlue, fontWeight = FontWeight.SemiBold)
+                    Text("跳过封音孔", color = InfoBlue, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 }
             }
-            Button(
-                onClick = { onConfirmNext(false) },
-                enabled = passed,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Accent,
-                    contentColor = Color(0xFF04211A),
-                    disabledContainerColor = Surface3,
-                    disabledContentColor = TextMuted
-                ),
-                modifier = Modifier
-                    .weight(1.3f)
-                    .height(48.dp)
-            ) {
-                val nextTitle = TapPosition.ordered.getOrNull(pos.stepIndex)?.title ?: ""
-                Text(
-                    text = when {
-                        !fullCount -> "请完成 ${snap.acceptedTaps.size}/${snap.targetTapCount} 次有效敲击"
-                        !passed -> "一致性需 ≥ 90%（请重敲低分格）"
-                        isLast -> "完成采集，生成声学报告"
-                        else -> "下一步：$nextTitle"
-                    },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            if (!started) {
+                Button(
+                    onClick = onStartMeasurement,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Accent,
+                        contentColor = Color(0xFF04211A)
+                    ),
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(48.dp)
+                ) {
+                    Text("开始测量（先测 1 秒底噪）", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                }
+            } else {
+                Button(
+                    onClick = { onConfirmNext(false) },
+                    enabled = passed,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Accent,
+                        contentColor = Color(0xFF04211A),
+                        disabledContainerColor = Surface3,
+                        disabledContentColor = TextMuted
+                    ),
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(48.dp)
+                ) {
+                    val nextTitle = TapPosition.ordered.getOrNull(pos.stepIndex)?.title ?: ""
+                    Text(
+                        text = when {
+                            !fullCount -> "请完成 ${snap.acceptedTaps.size}/${snap.targetTapCount} 次有效敲击"
+                            !passed -> "一致性需 ≥ 90%（请重敲低分格）"
+                            isLast -> "完成采集，生成声学报告"
+                            else -> "下一步：$nextTitle"
+                        },
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }

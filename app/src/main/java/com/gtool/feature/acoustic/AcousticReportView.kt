@@ -3,6 +3,7 @@ package com.gtool.feature.acoustic
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,10 +26,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -47,10 +51,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gtool.R
 import com.gtool.core.acoustic.AcousticChartBitmapRenderer
 import com.gtool.core.acoustic.AcousticRecord
 import com.gtool.core.acoustic.AcousticReportFormatter
@@ -59,6 +66,8 @@ import com.gtool.core.acoustic.GuitarBodyShape
 import com.gtool.core.acoustic.ModalId
 import com.gtool.core.acoustic.SpectrumChartOptions
 import com.gtool.core.acoustic.TapPosition
+import com.gtool.ui.AppPosture
+import com.gtool.ui.LocalWindowPosture
 import com.gtool.ui.theme.Accent
 import com.gtool.ui.theme.Bg
 import com.gtool.ui.theme.Danger
@@ -97,7 +106,21 @@ fun AcousticReportView(
     onUpdateMetadata: (guitarName: String, shape: GuitarBodyShape, notes: String) -> Unit
 ) {
     val record = state.activeRecord ?: return
+    val posture = LocalWindowPosture.current.posture
     var showEditDialog by remember { mutableStateOf(false) }
+
+    // 横屏进入全屏专注模式：仅显示选中的 FFT 频谱图，隐藏一切冗余按钮与导航栏；
+    // 顶部支持菜单点选或左右滑动切换敲击部位，点击横坐标循环切换频率范围。
+    if (posture == AppPosture.LANDSCAPE_COMPACT) {
+        LandscapeFocusedSpectrumView(
+            state = state,
+            record = record,
+            onBack = onBack,
+            onSelectPosition = onSelectSpectrumPosition,
+            onCycleFrequencyRange = { onUpdateChartOptions(::cycleSpectrumFrequencyRange) }
+        )
+        return
+    }
 
     Column(
         modifier = Modifier
@@ -458,27 +481,39 @@ private fun ReportSummaryTab(
             Text("结构微调方向：${report.voicingAdvice}", color = TextMuted, fontSize = 12.sp, lineHeight = 18.sp)
         }
 
-        // 7. 报告导出（MD / PDF）
+        // 7. 报告导出（MD / PDF）：磁盘图标代替“另存”，四按钮等高单行对齐
         SectionCard(title = "导出声学报告（离线生成）") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(
                     onClick = { onSaveDoc(ExportDocumentKind.MARKDOWN) },
                     enabled = !exporting,
                     shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF04211A)),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
                 ) {
-                    Text("另存 MD", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Icon(
+                        painter = painterResource(R.drawable.ic_save_disk),
+                        contentDescription = "保存 MD",
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("MD", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                 }
                 OutlinedButton(
                     onClick = { onShareDoc(ExportDocumentKind.MARKDOWN) },
                     enabled = !exporting,
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = Accent)
-                    Spacer(Modifier.width(4.dp))
-                    Text("分享 MD", color = Accent, fontSize = 13.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("分享 MD", color = Accent, fontSize = 13.sp, maxLines = 1)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -486,20 +521,32 @@ private fun ReportSummaryTab(
                     onClick = { onSaveDoc(ExportDocumentKind.PDF) },
                     enabled = !exporting,
                     shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = InfoBlue, contentColor = Color(0xFF04121F)),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
                 ) {
-                    Text("另存带图 PDF", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Icon(
+                        painter = painterResource(R.drawable.ic_save_disk),
+                        contentDescription = "保存带图 PDF",
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("带图 PDF", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
                 }
                 OutlinedButton(
                     onClick = { onShareDoc(ExportDocumentKind.PDF) },
                     enabled = !exporting,
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = InfoBlue)
-                    Spacer(Modifier.width(4.dp))
-                    Text("分享 PDF", color = InfoBlue, fontSize = 13.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("分享 PDF", color = InfoBlue, fontSize = 13.sp, maxLines = 1)
                 }
             }
         }
@@ -554,9 +601,9 @@ private fun SpectrumDetailTab(
             }
         }
 
-        // 交互式 FFT 频谱主图
+        // 交互式 FFT 频谱主图（点击横坐标亦可循环切换频率范围）
         FftSpectrumChart(
-            headerTitle = "敲击部位：${pos.title} (${pos.code})",
+            headerTitle = "敲击部位：${pos.title}",
             seriesList = listOf(
                 SpectrumCurveSeries(
                     label = record.guitarName,
@@ -571,9 +618,10 @@ private fun SpectrumDetailTab(
             useFlats = state.useFlats,
             tuningModalTarget = state.tuningModalTarget,
             onManualPeakSelected = onApplyManualPeak,
+            onXAxisTap = { onUpdateOptions(::cycleSpectrumFrequencyRange) },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(310.dp)
+                .height(320.dp)
         )
 
         // 频段视角 & 坐标轴控制栏
@@ -625,7 +673,7 @@ private fun SpectrumDetailTab(
             }
         }
 
-        // 保存频谱 PNG 到相册 / 分享
+        // 保存频谱 PNG 到相册 / 分享（等宽对齐）
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -634,24 +682,32 @@ private fun SpectrumDetailTab(
                 onClick = { onSavePng(false) },
                 enabled = !state.exporting,
                 shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF04211A)),
                 modifier = Modifier
-                    .weight(1.2f)
+                    .weight(1f)
                     .height(46.dp)
             ) {
-                Text("下载频谱图 (PNG)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Icon(
+                    painter = painterResource(R.drawable.ic_save_disk),
+                    contentDescription = null,
+                    modifier = Modifier.size(17.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("下载频谱图", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
             }
             OutlinedButton(
                 onClick = { onSavePng(true) },
                 enabled = !state.exporting,
                 shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                 modifier = Modifier
-                    .weight(0.9f)
+                    .weight(1f)
                     .height(46.dp)
             ) {
                 Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = InfoBlue)
-                Spacer(Modifier.width(4.dp))
-                Text("保存并分享", color = InfoBlue, fontSize = 13.sp)
+                Spacer(Modifier.width(6.dp))
+                Text("保存并分享", color = InfoBlue, fontSize = 13.sp, maxLines = 1)
             }
         }
 
@@ -847,7 +903,7 @@ private fun RawDataTab(
             }
         }
 
-        // 导出原始 CSV / JSON 按钮
+        // 导出原始 CSV / JSON 按钮（等高对齐 + 磁盘图标）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -858,28 +914,212 @@ private fun RawDataTab(
                 onClick = { onSaveDoc(ExportDocumentKind.RAW_CSV, null) },
                 enabled = !exporting,
                 shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Color(0xFF04211A)),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .height(42.dp)
             ) {
-                Text("另存 CSV", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Icon(
+                    painter = painterResource(R.drawable.ic_save_disk),
+                    contentDescription = "保存 CSV",
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("CSV", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
             }
             OutlinedButton(
                 onClick = { onShareDoc(ExportDocumentKind.RAW_CSV, null) },
                 enabled = !exporting,
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.weight(1f)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(42.dp)
             ) {
-                Text("分享 CSV", color = Accent, fontSize = 12.sp)
+                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp), tint = Accent)
+                Spacer(Modifier.width(4.dp))
+                Text("分享 CSV", color = Accent, fontSize = 12.sp, maxLines = 1)
             }
             OutlinedButton(
                 onClick = { onSaveDoc(ExportDocumentKind.RAW_JSON, null) },
                 enabled = !exporting,
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.weight(1f)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(42.dp)
             ) {
-                Text("导出 JSON", color = InfoBlue, fontSize = 12.sp)
+                Icon(
+                    painter = painterResource(R.drawable.ic_save_disk),
+                    contentDescription = "保存 JSON",
+                    tint = InfoBlue,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("JSON", color = InfoBlue, fontSize = 12.sp, maxLines = 1)
             }
         }
+    }
+}
+
+/**
+ * 声学报告横屏全屏专注模式：
+ * - 隐藏底部导航与所有非必要选项按钮，满屏展示当前选中的 FFT 频谱图
+ * - 顶部精简条支持点击下拉菜单或左右滑动切换敲击部位
+ * - 点击频谱底部横坐标区域即可循环切换频率范围（60–600 / 50–1.2k / 50–5k）
+ */
+@Composable
+private fun LandscapeFocusedSpectrumView(
+    state: AcousticUiState,
+    record: AcousticRecord,
+    onBack: () -> Unit,
+    onSelectPosition: (TapPosition) -> Unit,
+    onCycleFrequencyRange: () -> Unit
+) {
+    val availablePositions = TapPosition.ordered.filter { record.spectra.containsKey(it) }
+    val pos = state.selectedSpectrumPosition.takeIf { record.spectra.containsKey(it) }
+        ?: availablePositions.firstOrNull()
+        ?: return
+    val spec = record.spectra[pos] ?: return
+    val peaks = AcousticChartBitmapRenderer.peaksRelevantToPosition(record.report, pos)
+    var positionMenuExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Bg)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // 极简顶条：支持点击菜单或直接左右滑动切换敲击部位
+        var swipeAccum = 0f
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(38.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Surface1)
+                .border(1.dp, FretWire.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                .pointerInput(availablePositions, pos) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { swipeAccum = 0f },
+                        onHorizontalDrag = { _, dragAmount -> swipeAccum += dragAmount },
+                        onDragEnd = {
+                            if (availablePositions.size > 1 && abs(swipeAccum) > 56f) {
+                                val curIdx = availablePositions.indexOf(pos).coerceAtLeast(0)
+                                val nextIdx = if (swipeAccum < 0f) {
+                                    (curIdx + 1) % availablePositions.size
+                                } else {
+                                    (curIdx - 1 + availablePositions.size) % availablePositions.size
+                                }
+                                onSelectPosition(availablePositions[nextIdx])
+                            }
+                            swipeAccum = 0f
+                        }
+                    )
+                }
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = TextMain, modifier = Modifier.size(18.dp))
+            }
+            Text(
+                text = record.guitarName,
+                color = TextMuted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+
+            // 敲击部位下拉菜单（亦可左右滑顶条切换）
+            Box {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Surface2)
+                        .clickable { positionMenuExpanded = true }
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${pos.stepIndex}/${availablePositions.size} · ${pos.title}",
+                        color = Accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "切换敲击部位",
+                        tint = Accent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = positionMenuExpanded,
+                    onDismissRequest = { positionMenuExpanded = false },
+                    containerColor = Surface2
+                ) {
+                    for (item in availablePositions) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "${item.stepIndex}. ${item.title} (${item.targetModesLabel})",
+                                    color = if (item == pos) Accent else TextMain,
+                                    fontWeight = if (item == pos) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            onClick = {
+                                onSelectPosition(item)
+                                positionMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // 当前频段快捷指示（点击横坐标或此处均可循环切换）
+            Text(
+                text = spectrumRangeShortLabel(state.chartOptions),
+                color = InfoBlue,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(InfoBlue.copy(alpha = 0.14f))
+                    .clickable(onClick = onCycleFrequencyRange)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
+
+        // 全屏专注 FFT 频谱图
+        FftSpectrumChart(
+            headerTitle = "${pos.title} (${pos.targetModesLabel})",
+            seriesList = listOf(
+                SpectrumCurveSeries(
+                    label = record.guitarName,
+                    spectrum = spec,
+                    color = Accent,
+                    peaks = peaks,
+                    isTopLayer = true
+                )
+            ),
+            options = state.chartOptions,
+            a4Hz = record.a4Hz,
+            useFlats = state.useFlats,
+            onXAxisTap = onCycleFrequencyRange,
+            showHeader = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        )
     }
 }
 

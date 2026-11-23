@@ -94,6 +94,7 @@ data class AcousticUiState(
 
     // 5 点敲击采集状态
     val currentStepIndex: Int = 0,
+    val stepMeasurementStarted: Boolean = false,
     val capturedSpectra: Map<TapPosition, PositionSpectrum> = emptyMap(),
     val captureSnapshot: TapCaptureProcessor.Snapshot = TapCaptureProcessor().snapshot(),
     val isListening: Boolean = false,
@@ -224,7 +225,8 @@ class AcousticViewModel(application: Application) : AndroidViewModel(application
                 captureError = if (granted) null else "需要麦克风权限才能采集吉他敲击频谱"
             )
         }
-        if (granted && _state.value.page == AcousticPage.CAPTURE && !_state.value.isListening) {
+        val cur = _state.value
+        if (granted && cur.page == AcousticPage.CAPTURE && cur.stepMeasurementStarted && !cur.isListening) {
             startListeningCurrentStep(recalibrate = true)
         }
     }
@@ -346,17 +348,25 @@ class AcousticViewModel(application: Application) : AndroidViewModel(application
             showSnackbar("请先输入或选择吉他名称")
             return
         }
+        stopCaptureInternal()
         processor = TapCaptureProcessor()
         _state.update {
             it.copy(
                 page = AcousticPage.CAPTURE,
                 currentStepIndex = 0,
+                stepMeasurementStarted = false,
                 capturedSpectra = emptyMap(),
                 captureSnapshot = processor.snapshot(),
                 captureError = null
             )
         }
         refreshPermission()
+    }
+
+    /** 用户阅毕当前点位的敲击动作说明后点击开始测量：收起说明卡片并立即做 1 秒底噪校准与拾音。 */
+    fun startCurrentStepMeasurement() {
+        refreshPermission()
+        _state.update { it.copy(stepMeasurementStarted = true, captureError = null) }
         if (_state.value.permissionGranted) {
             startListeningCurrentStep(recalibrate = true)
         }
@@ -451,12 +461,10 @@ class AcousticViewModel(application: Application) : AndroidViewModel(application
                 it.copy(
                     capturedSpectra = updatedSpectra,
                     currentStepIndex = nextStep,
+                    stepMeasurementStarted = false,
                     captureSnapshot = processor.snapshot(),
                     captureError = null
                 )
-            }
-            if (_state.value.permissionGranted) {
-                startListeningCurrentStep(recalibrate = true)
             }
         } else {
             finalizeAndSaveRecord(updatedSpectra)
@@ -478,12 +486,10 @@ class AcousticViewModel(application: Application) : AndroidViewModel(application
         _state.update {
             it.copy(
                 currentStepIndex = cur.currentStepIndex - 1,
+                stepMeasurementStarted = false,
                 captureSnapshot = processor.snapshot(),
                 captureError = null
             )
-        }
-        if (_state.value.permissionGranted) {
-            startListeningCurrentStep(recalibrate = true)
         }
     }
 
