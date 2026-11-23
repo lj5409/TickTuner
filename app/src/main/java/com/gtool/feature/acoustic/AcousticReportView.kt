@@ -624,10 +624,11 @@ private fun SpectrumDetailTab(
                 .height(320.dp)
         )
 
-        // 频段视角 & 坐标轴控制栏
+        // 坐标轴与幅值参考控制栏（频段由图表左下角 Hz↻ 直接循环切换）
         SpectrumViewControlRow(
             options = state.chartOptions,
-            onUpdateOptions = onUpdateOptions
+            onUpdateOptions = onUpdateOptions,
+            showFrequencyPresets = false
         )
 
         // 共振峰摘要 & 手动微调卡片
@@ -718,7 +719,8 @@ private fun SpectrumDetailTab(
 @Composable
 fun SpectrumViewControlRow(
     options: SpectrumChartOptions,
-    onUpdateOptions: ((SpectrumChartOptions) -> SpectrumChartOptions) -> Unit
+    onUpdateOptions: ((SpectrumChartOptions) -> SpectrumChartOptions) -> Unit,
+    showFrequencyPresets: Boolean = true
 ) {
     Row(
         modifier = Modifier
@@ -726,25 +728,27 @@ fun SpectrumViewControlRow(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        val isModalRange = abs(options.minHz - 60.0) < 1.0 && abs(options.maxHz - 600.0) < 1.0
-        val isMidRange = abs(options.minHz - 50.0) < 1.0 && abs(options.maxHz - 1200.0) < 1.0
-        val isFullRange = abs(options.minHz - 50.0) < 1.0 && abs(options.maxHz - 5000.0) < 1.0
+        if (showFrequencyPresets) {
+            val isModalRange = abs(options.minHz - 60.0) < 1.0 && abs(options.maxHz - 600.0) < 1.0
+            val isMidRange = abs(options.minHz - 50.0) < 1.0 && abs(options.maxHz - 1200.0) < 1.0
+            val isFullRange = abs(options.minHz - 50.0) < 1.0 && abs(options.maxHz - 5000.0) < 1.0
 
-        FilterChip(
-            selected = isModalRange,
-            onClick = { onUpdateOptions { it.copy(minHz = 60.0, maxHz = 600.0) } },
-            label = { Text("主模态 60–600", fontSize = 11.sp) }
-        )
-        FilterChip(
-            selected = isMidRange,
-            onClick = { onUpdateOptions { it.copy(minHz = 50.0, maxHz = 1200.0) } },
-            label = { Text("标准 50–1.2k", fontSize = 11.sp) }
-        )
-        FilterChip(
-            selected = isFullRange,
-            onClick = { onUpdateOptions { it.copy(minHz = 50.0, maxHz = 5000.0) } },
-            label = { Text("全频 50–5k", fontSize = 11.sp) }
-        )
+            FilterChip(
+                selected = isModalRange,
+                onClick = { onUpdateOptions { it.copy(minHz = 60.0, maxHz = 600.0) } },
+                label = { Text("主模态 60–600", fontSize = 11.sp) }
+            )
+            FilterChip(
+                selected = isMidRange,
+                onClick = { onUpdateOptions { it.copy(minHz = 50.0, maxHz = 1200.0) } },
+                label = { Text("标准 50–1.2k", fontSize = 11.sp) }
+            )
+            FilterChip(
+                selected = isFullRange,
+                onClick = { onUpdateOptions { it.copy(minHz = 50.0, maxHz = 5000.0) } },
+                label = { Text("全频 50–5k", fontSize = 11.sp) }
+            )
+        }
         FilterChip(
             selected = options.logScale,
             onClick = { onUpdateOptions { it.copy(logScale = !it.logScale) } },
@@ -965,9 +969,9 @@ private fun RawDataTab(
 
 /**
  * 声学报告横屏全屏专注模式：
- * - 隐藏底部导航与所有非必要选项按钮，满屏展示当前选中的 FFT 频谱图
- * - 顶部精简条支持点击下拉菜单或左右滑动切换敲击部位
- * - 点击频谱底部横坐标区域即可循环切换频率范围（60–600 / 50–1.2k / 50–5k）
+ * - 隐藏底部导航与图表内顶栏，最大化 FFT 频谱图垂直高度
+ * - 单一极简顶条：左侧返回+吉他型号、正中敲击位置下拉选择（亦支持左右滑动切换）、右侧实时游标音分与响度读数
+ * - 左下角 Hz↻ 与横坐标区域均可点击循环切换频率范围（60–600 / 50–1.2k / 50–5k）
  */
 @Composable
 private fun LandscapeFocusedSpectrumView(
@@ -984,6 +988,11 @@ private fun LandscapeFocusedSpectrumView(
     val spec = record.spectra[pos] ?: return
     val peaks = AcousticChartBitmapRenderer.peaksRelevantToPosition(record.report, pos)
     var positionMenuExpanded by remember { mutableStateOf(false) }
+    var cursorFreqHz by remember { mutableStateOf<Double?>(null) }
+
+    val peakRefDb = remember(spec, state.chartOptions) {
+        spec.peakMagnitudeDbfs(state.chartOptions.minHz, state.chartOptions.maxHz)
+    }
 
     Column(
         modifier = Modifier
@@ -992,12 +1001,12 @@ private fun LandscapeFocusedSpectrumView(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // 极简顶条：支持点击菜单或直接左右滑动切换敲击部位
+        // 单一极简顶条：左吉他型号 / 中敲击位置选择 / 右音分与响度（支持左右滑动切换敲击部位）
         var swipeAccum = 0f
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(38.dp)
+                .height(36.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(Surface1)
                 .border(1.dp, FretWire.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
@@ -1022,20 +1031,26 @@ private fun LandscapeFocusedSpectrumView(
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = TextMain, modifier = Modifier.size(18.dp))
+            // 左侧：返回 + 吉他型号（位置不变）
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = TextMain, modifier = Modifier.size(18.dp))
+                }
+                Text(
+                    text = record.guitarName,
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-            Text(
-                text = record.guitarName,
-                color = TextMuted,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
 
-            // 敲击部位下拉菜单（亦可左右滑顶条切换）
-            Box {
+            // 中间：敲击部位下拉菜单（左右等宽 weight 保证严格居中）
+            Box(modifier = Modifier.padding(horizontal = 6.dp)) {
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -1049,7 +1064,8 @@ private fun LandscapeFocusedSpectrumView(
                         color = Accent,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
@@ -1082,26 +1098,42 @@ private fun LandscapeFocusedSpectrumView(
                 }
             }
 
-            Spacer(Modifier.width(8.dp))
-
-            // 当前频段快捷指示（点击横坐标或此处均可循环切换）
-            Text(
-                text = spectrumRangeShortLabel(state.chartOptions),
-                color = InfoBlue,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
+            // 右侧：上移的音分与响度读数（去掉右上频段切换按钮）
+            Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(InfoBlue.copy(alpha = 0.14f))
-                    .clickable(onClick = onCycleFrequencyRange)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            )
+                    .weight(1f)
+                    .padding(end = 4.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                val cHz = cursorFreqHz
+                if (cHz != null) {
+                    val magDb = spec.magnitudeAtFrequency(cHz) -
+                        (if (state.chartOptions.normalizeToPeak) peakRefDb else 0.0)
+                    Text(
+                        text = formatSingleSpectrumReadout(cHz, magDb, record.a4Hz, state.useFlats),
+                        color = InfoBlue,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    Text(
+                        text = if (state.chartOptions.normalizeToPeak) "0 dB · 滑动读频" else "dBFS · 滑动读频",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
 
-        // 全屏专注 FFT 频谱图
+        // 全屏专注 FFT 频谱图（去掉图内顶栏，频谱高度最大化）
         FftSpectrumChart(
-            headerTitle = "${pos.title} (${pos.targetModesLabel})",
+            headerTitle = "",
             seriesList = listOf(
                 SpectrumCurveSeries(
                     label = record.guitarName,
@@ -1115,7 +1147,8 @@ private fun LandscapeFocusedSpectrumView(
             a4Hz = record.a4Hz,
             useFlats = state.useFlats,
             onXAxisTap = onCycleFrequencyRange,
-            showHeader = true,
+            showHeader = false,
+            onCursorFreqChange = { cursorFreqHz = it },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)

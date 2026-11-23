@@ -36,4 +36,9 @@ class SpectrumChartHelpersTest {
         assertEquals("50–1.2k Hz", spectrumRangeShortLabel(SpectrumChartOptions(50.0, 1200.0)))
         assertEquals("50–5k Hz", spectrumRangeShortLabel(SpectrumChartOptions(50.0, 5000.0)))
     }
+
+    @Test
+    fun formatSingleSpectrumReadout_formatsNoteCentsAndDb() {
+        assertEquals("A4(+0¢) · -3.2 dB", formatSingleSpectrumReadout(440.0, -3.24, 440.0, useFlats = false))
+    }
 }
