@@ -68,11 +68,15 @@ fun AcousticScreen() {
         }
     }
 
-    // 对比页横屏锁定与底部导航栏沉浸隐藏（退出对比页自动恢复原方向与导航栏）
+    // 横屏全屏沉浸隐藏底部导航栏：
+    // 1) 声学报告详情页横屏 -> 全屏专注只展示选中频谱图
+    // 2) 双记录对比页横屏 / 强制横屏
+    val inDetailLandscapeFocus = state.page == AcousticPage.DETAIL &&
+        posture == AppPosture.LANDSCAPE_COMPACT
     val inCompareLandscape = state.page == AcousticPage.COMPARE &&
         (state.compareForceLandscape || posture == AppPosture.LANDSCAPE_COMPACT)
-    LaunchedEffect(inCompareLandscape) {
-        setImmersiveChrome(inCompareLandscape)
+    LaunchedEffect(inDetailLandscapeFocus, inCompareLandscape) {
+        setImmersiveChrome(inDetailLandscapeFocus || inCompareLandscape)
     }
     LaunchedEffect(state.page, state.compareForceLandscape) {
         if (activity != null) {
@@ -158,6 +162,12 @@ fun AcousticScreen() {
                 state = state,
                 onBackToPrep = { vm.navigateBack() },
                 onRequestPermission = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                onStartMeasurement = {
+                    vm.startCurrentStepMeasurement()
+                    if (!state.permissionGranted) {
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
                 onTogglePause = { vm.toggleListeningPause() },
                 onResetStep = { vm.resetCurrentStepTaps() },
                 onRemoveTap = { idx -> vm.removeSingleTap(idx) },

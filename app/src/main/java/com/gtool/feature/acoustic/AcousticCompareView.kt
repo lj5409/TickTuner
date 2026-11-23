@@ -199,13 +199,14 @@ fun AcousticCompareView(
                     }
                 }
 
-                // 全宽横向叠加 FFT 频谱图
+                // 全宽横向叠加 FFT 频谱图（点击横坐标可切换频段）
                 FftSpectrumChart(
                     headerTitle = "叠加对比 · ${pos.title} (${if (state.compareAOnTop) "A 在上" else "B 在上"})",
                     seriesList = seriesList,
                     options = state.compareOptions,
                     a4Hz = state.a4Hz,
                     useFlats = state.useFlats,
+                    onXAxisTap = { onUpdateOptions(::cycleSpectrumFrequencyRange) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
@@ -311,9 +312,10 @@ fun AcousticCompareView(
                     options = state.compareOptions,
                     a4Hz = state.a4Hz,
                     useFlats = state.useFlats,
+                    onXAxisTap = { onUpdateOptions(::cycleSpectrumFrequencyRange) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(270.dp)
+                        .height(290.dp)
                 )
 
                 SpectrumViewControlRow(
