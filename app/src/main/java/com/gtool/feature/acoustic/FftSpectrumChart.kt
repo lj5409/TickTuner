@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -105,11 +106,22 @@ fun spectrumRangeShortLabel(options: SpectrumChartOptions): String = when {
 fun formatCursorHzLabel(hz: Double): String =
     if (hz >= 1000.0) "${hz.roundToInt()} Hz" else "${String.format(Locale.US, "%.1f", hz)} Hz"
 
+fun formatSingleSpectrumReadout(
+    cursorFreqHz: Double,
+    magnitudeDb: Double,
+    a4Hz: Double,
+    useFlats: Boolean
+): String {
+    val note = Note.fromFrequency(cursorFreqHz, a4Hz)
+    val cents = centsFrom(cursorFreqHz, note.frequency(a4Hz))
+    return "${note.name(useFlats)}(${String.format(Locale.US, "%+.0f", cents)}¢) · ${f1(magnitudeDb)} dB"
+}
+
 /**
  * 高精度交互式 FFT 频谱 Canvas 组件（同时支持单点频谱展示、横屏专注模式、共振峰手动微调与双记录叠图对比）：
  * - 严格单行顶栏防换行挤压纵轴
  * - 滑动/点击频谱时在顶部框线以上清晰标出虚线对应的精确赫兹（Hz）数值气泡
- * - 点击底部横坐标区域可循环切换频率范围（60–600 / 50–1.2k / 50–5k）
+ * - 底部左侧提供 Hz↻ 切换键（不遮挡横坐标刻度），点击即可循环切换频率范围（60–600 / 50–1.2k / 50–5k）
  * - 支持对数 / 线性频率轴、0 dB 相对峰值 / 原始 dBFS 切换
  */
 @Composable
@@ -123,10 +135,15 @@ fun FftSpectrumChart(
     onManualPeakSelected: ((ModalId, Double) -> Unit)? = null,
     onXAxisTap: (() -> Unit)? = null,
     showHeader: Boolean = true,
+    onCursorFreqChange: ((Double?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
     var cursorFreqHz by remember(options, seriesList.size) { mutableStateOf<Double?>(null) }
+
+    LaunchedEffect(cursorFreqHz) {
+        onCursorFreqChange?.invoke(cursorFreqHz)
+    }
 
     // 按叠放顺序排序：先画下层，再画上层
     val orderedSeries = remember(seriesList) {
@@ -155,7 +172,12 @@ fun FftSpectrumChart(
             .clip(RoundedCornerShape(14.dp))
             .background(Surface1)
             .border(1.dp, FretWire.copy(alpha = 0.65f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 10.dp, vertical = if (showHeader) 8.dp else 6.dp)
+            .padding(
+                start = 10.dp,
+                end = 10.dp,
+                top = if (showHeader) 8.dp else 2.dp,
+                bottom = if (showHeader) 8.dp else 4.dp
+            )
     ) {
         // 顶部标题行 + 游标实时读数（所有文本严格单行截断，彻底杜绝换行挤压纵轴高度）
         if (showHeader) {
@@ -177,9 +199,8 @@ fun FftSpectrumChart(
                 Spacer(Modifier.width(8.dp))
                 val cHz = cursorFreqHz
                 if (cHz != null && orderedSeries.isNotEmpty()) {
-                    val note = Note.fromFrequency(cHz, a4Hz)
-                    val cents = centsFrom(cHz, note.frequency(a4Hz))
                     val readout = if (seriesList.size == 2) {
+                        val note = Note.fromFrequency(cHz, a4Hz)
                         val sA = seriesList[0]
                         val sB = seriesList[1]
                         val refA = sA.spectrum.peakMagnitudeDbfs(options.minHz, options.maxHz)
@@ -191,7 +212,7 @@ fun FftSpectrumChart(
                         val s0 = orderedSeries.last()
                         val ref0 = refs.last()
                         val v0 = s0.spectrum.magnitudeAtFrequency(cHz) - (if (options.normalizeToPeak) ref0 else 0.0)
-                        "${note.name(useFlats)}(${String.format(Locale.US, "%+.0f", cents)}¢) · ${f1(v0)} dB"
+                        formatSingleSpectrumReadout(cHz, v0, a4Hz, useFlats)
                     }
                     Text(
                         text = readout,
@@ -231,7 +252,7 @@ fun FftSpectrumChart(
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            val leftPadPx = with(density) { 34.dp.toPx() }
+            val leftPadPx = with(density) { 38.dp.toPx() }
             val rightPadPx = with(density) { 10.dp.toPx() }
             // 顶部预留 26 dp 空间，专门用于在顶部框线以上清晰标注滑动虚线对应的 Hz 数值
             val topPadPx = with(density) { 26.dp.toPx() }
@@ -346,7 +367,6 @@ fun FftSpectrumChart(
                 val ticks = AcousticChartBitmapRenderer.frequencyTicks(
                     options.minHz, options.maxHz, options.logScale
                 )
-                val rightReserveForHint = if (onXAxisTap != null) with(density) { 28.dp.toPx() } else 0f
                 for (hz in ticks) {
                     val x = xFor(hz)
                     if (x < plotLeft + 2f || x > plotRight - 2f) continue
@@ -356,36 +376,49 @@ fun FftSpectrumChart(
                         end = Offset(x, plotBottom),
                         strokeWidth = 1f
                     )
-                    if (x <= plotRight - rightReserveForHint) {
-                        val label = if (hz >= 1000.0) {
-                            val k = hz / 1000.0
-                            if (abs(k - k.toInt()) < 0.01) "${k.toInt()}k" else String.format(Locale.US, "%.1fk", k)
-                        } else "${hz.toInt()}"
-                        drawIntoCanvas { canvas ->
-                            axisPaint.textAlign = Paint.Align.CENTER
-                            canvas.nativeCanvas.drawText(
-                                label,
-                                x,
-                                plotBottom + with(density) { 16.dp.toPx() },
-                                axisPaint
-                            )
-                        }
+                    val label = if (hz >= 1000.0) {
+                        val k = hz / 1000.0
+                        if (abs(k - k.toInt()) < 0.01) "${k.toInt()}k" else String.format(Locale.US, "%.1fk", k)
+                    } else "${hz.toInt()}"
+                    drawIntoCanvas { canvas ->
+                        axisPaint.textAlign = Paint.Align.CENTER
+                        canvas.nativeCanvas.drawText(
+                            label,
+                            x,
+                            plotBottom + with(density) { 16.dp.toPx() },
+                            axisPaint
+                        )
                     }
                 }
 
-                // 横坐标可点击切换频段提示
+                // 底部左侧 Hz 切换键（位于纵坐标列正下方，完全不遮挡横坐标刻度）
                 if (onXAxisTap != null) {
                     val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = InfoBlue.toArgb()
                         textSize = with(density) { 9.5.sp.toPx() }
-                        textAlign = Paint.Align.RIGHT
+                        textAlign = Paint.Align.CENTER
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
+                    val pillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = InfoBlue.copy(alpha = 0.16f).toArgb()
+                    }
+                    val hintText = "Hz↻"
+                    val padH = with(density) { 4.dp.toPx() }
+                    val maxPillW = (plotLeft - with(density) { 4.dp.toPx() }).coerceAtLeast(16f)
+                    val pillW = (hintPaint.measureText(hintText) + padH * 2).coerceAtMost(maxPillW)
+                    val pillH = with(density) { 17.dp.toPx() }
+                    val pillRight = plotLeft - with(density) { 4.dp.toPx() }
+                    val pillLeft = (pillRight - pillW).coerceAtLeast(0f)
+                    val pillTop = plotBottom + with(density) { 5.dp.toPx() }
+                    val pillRect = RectF(pillLeft, pillTop, pillLeft + pillW, pillTop + pillH)
+                    val corner = with(density) { 5.dp.toPx() }
                     drawIntoCanvas { canvas ->
-                        canvas.nativeCanvas.drawText(
-                            "Hz↻",
-                            plotRight,
-                            plotBottom + with(density) { 16.dp.toPx() },
+                        val nc = canvas.nativeCanvas
+                        nc.drawRoundRect(pillRect, corner, corner, pillBgPaint)
+                        nc.drawText(
+                            hintText,
+                            pillRect.centerX(),
+                            pillRect.centerY() + with(density) { 3.3.dp.toPx() },
                             hintPaint
                         )
                     }
