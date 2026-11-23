@@ -8,7 +8,6 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,10 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -39,9 +34,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -52,17 +45,19 @@ import com.gtool.ui.AppPosture
 import com.gtool.ui.LocalWindowPosture
 import com.gtool.ui.WindowPostureState
 import com.gtool.ui.theme.Bg
-import com.gtool.ui.theme.TextMain
-import com.gtool.ui.theme.TextMuted
 
 /**
  * 调音器主页面。签名固定为无参数，由 GToolApp 的导航壳直接调用。
  *
- * 根据 [LocalWindowPosture] 自动适配四种形态（与节拍器保持一致）：
- * - 竖屏（手机 / 折叠屏外屏）：顶部调弦栏 + 表盘 + 紧凑弦位列表；
- * - 横屏 / 帐篷模式：隐藏导航栏与设置，左满屏调音表 + 右两列满屏弦位（无需滑动）；
- * - 半折叠悬停模式（Tabletop）：隐藏导航栏，按物理折痕上半屏纯净大调音表，下半屏展示弦位与完整设置；
- * - 折叠屏完全展开模式（Unfolded）：左侧 NavigationRail + 左右双栏（左大调音表与快捷参数 + 右弦位与调弦快速切换，避让竖向折痕）。
+ * 四态均为「一页满屏、不翻页、不滑动」，由两块核心视觉组成：
+ * - [CentsTrailIndicator]：横轴音分指示器（上方音高 / 频率 / 音分，指针向下走出渐隐轨迹）；
+ * - [GuitarHeadstock]：3+3 钢弦琴头，弦钮旁标音高，点击锁定；琴头 Logo 为调弦名，点击切换调弦。
+ * 锁定某根弦后，屏幕右下角出现参考音播放 / 停止按钮。
+ *
+ * - 竖屏：参数行 + 上指示器 + 下琴头；
+ * - 横屏 / 帐篷：隐藏导航栏，左指示器 + 右琴头；
+ * - 半折叠悬停（Tabletop）：上半屏指示器，下半屏琴头 + 参数；
+ * - 完全展开（Unfolded）：左指示器 + 右参数与琴头（避让竖向折痕）。
  */
 @Composable
 fun TunerScreen() {
@@ -128,8 +123,16 @@ fun TunerScreen() {
         }
     }
 
-    val requestPermission = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }
-    val openSettings = { openAppSettings(context) }
+    val actions = TunerActions(
+        onRequestPermission = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+        onOpenSettings = { openAppSettings(context) },
+        onDismissError = tunerViewModel::clearError,
+        onTuningClick = { showPicker = true },
+        onA4Click = { showA4Dialog = true },
+        onFlatsToggle = tunerViewModel::toggleFlats,
+        onManageClick = { showManager = true },
+        onToggleLock = tunerViewModel::toggleStringLock
+    )
 
     Box(
         modifier = Modifier
@@ -137,61 +140,26 @@ fun TunerScreen() {
             .background(Bg)
     ) {
         when (postureState.posture) {
-            AppPosture.LANDSCAPE_COMPACT -> LandscapeTunerLayout(
-                state = state,
-                hasPermission = hasPermission,
-                onRequestPermission = requestPermission,
-                onDismissError = tunerViewModel::clearError,
-                onToggleLock = tunerViewModel::toggleStringLock,
-                onPlayReference = tunerViewModel::playReference,
-                onStopReference = tunerViewModel::stopReference
-            )
+            AppPosture.LANDSCAPE_COMPACT -> LandscapeTunerLayout(state, hasPermission, actions)
+            AppPosture.TABLETOP -> TabletopTunerLayout(postureState, state, hasPermission, actions)
+            AppPosture.UNFOLDED_EXPANDED -> UnfoldedDualPaneTunerLayout(postureState, state, hasPermission, actions)
+            AppPosture.PORTRAIT -> PortraitTunerLayout(state, hasPermission, actions)
+        }
 
-            AppPosture.TABLETOP -> TabletopTunerLayout(
-                postureState = postureState,
-                state = state,
-                hasPermission = hasPermission,
-                onRequestPermission = requestPermission,
-                onOpenSettings = openSettings,
-                onDismissError = tunerViewModel::clearError,
-                onA4Click = { showA4Dialog = true },
-                onFlatsToggle = tunerViewModel::toggleFlats,
-                onManageClick = { showManager = true },
-                onSelectTuning = { tunerViewModel.selectTuning(it.id) },
-                onToggleLock = tunerViewModel::toggleStringLock,
-                onPlayReference = tunerViewModel::playReference,
-                onStopReference = tunerViewModel::stopReference
-            )
-
-            AppPosture.UNFOLDED_EXPANDED -> UnfoldedDualPaneTunerLayout(
-                postureState = postureState,
-                state = state,
-                hasPermission = hasPermission,
-                onRequestPermission = requestPermission,
-                onOpenSettings = openSettings,
-                onDismissError = tunerViewModel::clearError,
-                onA4Click = { showA4Dialog = true },
-                onFlatsToggle = tunerViewModel::toggleFlats,
-                onManageClick = { showManager = true },
-                onSelectTuning = { tunerViewModel.selectTuning(it.id) },
-                onToggleLock = tunerViewModel::toggleStringLock,
-                onPlayReference = tunerViewModel::playReference,
-                onStopReference = tunerViewModel::stopReference
-            )
-
-            AppPosture.PORTRAIT -> PortraitTunerLayout(
-                state = state,
-                hasPermission = hasPermission,
-                onTuningClick = { showPicker = true },
-                onA4Click = { showA4Dialog = true },
-                onFlatsToggle = tunerViewModel::toggleFlats,
-                onManageClick = { showManager = true },
-                onRequestPermission = requestPermission,
-                onOpenSettings = openSettings,
-                onDismissError = tunerViewModel::clearError,
-                onToggleLock = tunerViewModel::toggleStringLock,
-                onPlayReference = tunerViewModel::playReference,
-                onStopReference = tunerViewModel::stopReference
+        // 锁定弦后：右下角参考音播放 / 停止
+        val locked = state.lockedIndex
+        val lockedNote = locked?.let { state.tuning.strings.getOrNull(it) }
+        if (locked != null && lockedNote != null) {
+            val playing = state.playingIndex == locked
+            ReferenceToneButton(
+                playing = playing,
+                noteName = lockedNote.name(state.useFlats),
+                onClick = {
+                    if (playing) tunerViewModel.stopReference() else tunerViewModel.playReference(locked)
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
             )
         }
     }
@@ -281,69 +249,97 @@ fun TunerScreen() {
     }
 }
 
+/** 四态布局共用的交互回调。 */
+private class TunerActions(
+    val onRequestPermission: () -> Unit,
+    val onOpenSettings: () -> Unit,
+    val onDismissError: () -> Unit,
+    val onTuningClick: () -> Unit,
+    val onA4Click: () -> Unit,
+    val onFlatsToggle: () -> Unit,
+    val onManageClick: () -> Unit,
+    val onToggleLock: (Int) -> Unit
+)
+
+@Composable
+private fun Indicator(
+    state: TunerUiState,
+    hasPermission: Boolean,
+    actions: TunerActions,
+    modifier: Modifier
+) {
+    CentsTrailIndicator(
+        state = state,
+        hasPermission = hasPermission,
+        onRequestPermission = actions.onRequestPermission,
+        onOpenSettings = actions.onOpenSettings,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun Headstock(
+    state: TunerUiState,
+    actions: TunerActions,
+    modifier: Modifier,
+    showTuningBadge: Boolean = false
+) {
+    GuitarHeadstock(
+        state = state,
+        onToggleLock = actions.onToggleLock,
+        onTuningClick = actions.onTuningClick,
+        showTuningBadge = showTuningBadge,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun SettingsRow(state: TunerUiState, actions: TunerActions, modifier: Modifier = Modifier) {
+    TunerSettingsRow(
+        state = state,
+        onTuningClick = actions.onTuningClick,
+        onA4Click = actions.onA4Click,
+        onFlatsToggle = actions.onFlatsToggle,
+        onManageClick = actions.onManageClick,
+        modifier = modifier
+    )
+}
+
 // ------------------------------------------------------------------ 1. 竖屏布局
 
 @Composable
 private fun PortraitTunerLayout(
     state: TunerUiState,
     hasPermission: Boolean,
-    onTuningClick: () -> Unit,
-    onA4Click: () -> Unit,
-    onFlatsToggle: () -> Unit,
-    onManageClick: () -> Unit,
-    onRequestPermission: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onDismissError: () -> Unit,
-    onToggleLock: (Int) -> Unit,
-    onPlayReference: (Int) -> Unit,
-    onStopReference: () -> Unit
+    actions: TunerActions
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        TunerHeader(
-            state = state,
-            onTuningClick = onTuningClick,
-            onA4Click = onA4Click,
-            onFlatsToggle = onFlatsToggle,
-            onManageClick = onManageClick
-        )
-
-        if (!hasPermission) {
-            PermissionRequestCard(
-                onRequest = onRequestPermission,
-                onOpenSettings = onOpenSettings
-            )
-        }
+        SettingsRow(state, actions)
 
         state.errorMessage?.let { message ->
-            ErrorBanner(message = message, onDismiss = onDismissError)
+            ErrorBanner(message = message, onDismiss = actions.onDismissError)
         }
 
-        PitchPanel(
+        Indicator(
             state = state,
             hasPermission = hasPermission,
-            onPlayTarget = onPlayReference,
-            onStopReference = onStopReference
+            actions = actions,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1.05f)
         )
 
-        StringsSection(
+        Headstock(
             state = state,
-            onToggleLock = onToggleLock,
-            onPlayReference = onPlayReference,
-            onStopReference = onStopReference
-        )
-
-        Text(
-            text = "提示：轻点弦位可锁定目标弦；点弦号或 ▶ 循环播放参考音，点击 ■ 停止。" +
-                "内置调弦不可修改，可在「调弦管理」里另存为自定义。",
-            fontSize = 12.sp,
-            color = TextMuted.copy(alpha = 0.85f),
-            lineHeight = 18.sp
+            actions = actions,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         )
     }
 }
@@ -354,11 +350,7 @@ private fun PortraitTunerLayout(
 private fun LandscapeTunerLayout(
     state: TunerUiState,
     hasPermission: Boolean,
-    onRequestPermission: () -> Unit,
-    onDismissError: () -> Unit,
-    onToggleLock: (Int) -> Unit,
-    onPlayReference: (Int) -> Unit,
-    onStopReference: () -> Unit
+    actions: TunerActions
 ) {
     Box(
         modifier = Modifier
@@ -367,29 +359,20 @@ private fun LandscapeTunerLayout(
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 左侧：自适应大调音表，填满左侧高度
-            PitchPanel(
+            Indicator(
                 state = state,
                 hasPermission = hasPermission,
-                onPlayTarget = onPlayReference,
-                onStopReference = onStopReference,
-                fillAvailableHeight = true,
-                showTuningNameInHint = true,
-                onRequestPermission = onRequestPermission,
+                actions = actions,
                 modifier = Modifier
-                    .weight(1.12f)
+                    .weight(1.15f)
                     .fillMaxHeight()
             )
-
-            // 右侧：两列满屏弦位网格（无需滑动）
-            StringsTwoColumnGrid(
+            Headstock(
                 state = state,
-                onToggleLock = onToggleLock,
-                onPlayReference = onPlayReference,
-                onStopReference = onStopReference,
+                actions = actions,
+                showTuningBadge = true,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
@@ -403,7 +386,7 @@ private fun LandscapeTunerLayout(
                     .align(Alignment.TopCenter)
                     .padding(horizontal = 24.dp, vertical = 6.dp)
             ) {
-                ErrorBanner(message = message, onDismiss = onDismissError)
+                ErrorBanner(message = message, onDismiss = actions.onDismissError)
             }
         }
     }
@@ -416,16 +399,7 @@ private fun TabletopTunerLayout(
     postureState: WindowPostureState,
     state: TunerUiState,
     hasPermission: Boolean,
-    onRequestPermission: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onDismissError: () -> Unit,
-    onA4Click: () -> Unit,
-    onFlatsToggle: () -> Unit,
-    onManageClick: () -> Unit,
-    onSelectTuning: (Tuning) -> Unit,
-    onToggleLock: (Int) -> Unit,
-    onPlayReference: (Int) -> Unit,
-    onStopReference: () -> Unit
+    actions: TunerActions
 ) {
     val density = LocalDensity.current
     var containerTopInWindowPx by remember { mutableFloatStateOf(0f) }
@@ -452,77 +426,46 @@ private fun TabletopTunerLayout(
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // 上半屏（折痕以上，立起面向演奏者）：纯净大号调音表
-            Box(
+            // 上半屏（折痕以上，立起面向演奏者）：横轴指示器
+            Indicator(
+                state = state,
+                hasPermission = hasPermission,
+                actions = actions,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(topPaneHeight)
                     .padding(horizontal = 16.dp, vertical = 10.dp)
-            ) {
-                PitchPanel(
-                    state = state,
-                    hasPermission = hasPermission,
-                    onPlayTarget = onPlayReference,
-                    onStopReference = onStopReference,
-                    fillAvailableHeight = true,
-                    showTuningNameInHint = true,
-                    onRequestPermission = onRequestPermission,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            )
 
             // 物理铰链安全避让区
             Spacer(Modifier.height(hingeGap))
 
-            // 下半屏（折痕以下，平放桌面）：大折叠左右双栏（左两列弦位 + 右全部设置与调弦列表），窄屏单栏滚动
+            // 下半屏（折痕以下，平放桌面）：琴头 + 参数，满屏不滚动
             if (containerWidth >= 560.dp) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    StringsTwoColumnGrid(
+                    Headstock(
                         state = state,
-                        onToggleLock = onToggleLock,
-                        onPlayReference = onPlayReference,
-                        onStopReference = onStopReference,
+                        actions = actions,
                         modifier = Modifier
-                            .weight(1.1f)
+                            .weight(1.2f)
                             .fillMaxHeight()
                     )
-
                     Column(
                         modifier = Modifier
-                            .weight(0.9f)
-                            .fillMaxHeight()
-                            .verticalScroll(rememberScrollState()),
+                            .weight(0.8f)
+                            .fillMaxHeight(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (!hasPermission) {
-                            PermissionRequestCard(
-                                onRequest = onRequestPermission,
-                                onOpenSettings = onOpenSettings
-                            )
-                        }
+                        SettingsRow(state, actions)
                         state.errorMessage?.let { message ->
-                            ErrorBanner(message = message, onDismiss = onDismissError)
+                            ErrorBanner(message = message, onDismiss = actions.onDismissError)
                         }
-                        TunerQuickParamsCard(
-                            state = state,
-                            onA4Click = onA4Click,
-                            onFlatsToggle = onFlatsToggle,
-                            onManageClick = onManageClick
-                        )
-                        QuickTuningSwitcherCard(
-                            tunings = state.allTunings,
-                            activeId = state.tuning.id,
-                            useFlats = state.useFlats,
-                            onSelect = onSelectTuning,
-                            onManage = onManageClick
-                        )
-                        Spacer(Modifier.height(8.dp))
                     }
                 }
             } else {
@@ -530,42 +473,20 @@ private fun TabletopTunerLayout(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (!hasPermission) {
-                        PermissionRequestCard(
-                            onRequest = onRequestPermission,
-                            onOpenSettings = onOpenSettings
-                        )
-                    }
+                    SettingsRow(state, actions)
                     state.errorMessage?.let { message ->
-                        ErrorBanner(message = message, onDismiss = onDismissError)
+                        ErrorBanner(message = message, onDismiss = actions.onDismissError)
                     }
-                    StringsTwoColumnGrid(
+                    Headstock(
                         state = state,
-                        onToggleLock = onToggleLock,
-                        onPlayReference = onPlayReference,
-                        onStopReference = onStopReference,
+                        actions = actions,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(228.dp)
+                            .weight(1f)
                     )
-                    TunerQuickParamsCard(
-                        state = state,
-                        onA4Click = onA4Click,
-                        onFlatsToggle = onFlatsToggle,
-                        onManageClick = onManageClick
-                    )
-                    QuickTuningSwitcherCard(
-                        tunings = state.allTunings,
-                        activeId = state.tuning.id,
-                        useFlats = state.useFlats,
-                        onSelect = onSelectTuning,
-                        onManage = onManageClick
-                    )
-                    Spacer(Modifier.height(10.dp))
                 }
             }
         }
@@ -579,16 +500,7 @@ private fun UnfoldedDualPaneTunerLayout(
     postureState: WindowPostureState,
     state: TunerUiState,
     hasPermission: Boolean,
-    onRequestPermission: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onDismissError: () -> Unit,
-    onA4Click: () -> Unit,
-    onFlatsToggle: () -> Unit,
-    onManageClick: () -> Unit,
-    onSelectTuning: (Tuning) -> Unit,
-    onToggleLock: (Int) -> Unit,
-    onPlayReference: (Int) -> Unit,
-    onStopReference: () -> Unit
+    actions: TunerActions
 ) {
     val density = LocalDensity.current
     var containerLeftInWindowPx by remember { mutableFloatStateOf(0f) }
@@ -622,120 +534,37 @@ private fun UnfoldedDualPaneTunerLayout(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(hingeGap)
         ) {
-            // 左栏：大调音表主舞台 + 调音参数快捷卡片
-            Column(
+            // 左栏：横轴指示器主舞台
+            Indicator(
+                state = state,
+                hasPermission = hasPermission,
+                actions = actions,
                 modifier = (if (leftPaneFixedWidth != null) {
                     Modifier.width(leftPaneFixedWidth)
                 } else {
-                    Modifier.weight(1.08f)
-                }).fillMaxHeight(),
+                    Modifier.weight(1.05f)
+                }).fillMaxHeight()
+            )
+
+            // 右栏：参数行 + 琴头
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (!hasPermission) {
-                    PermissionRequestCard(
-                        onRequest = onRequestPermission,
-                        onOpenSettings = onOpenSettings
-                    )
-                }
-
+                SettingsRow(state, actions)
                 state.errorMessage?.let { message ->
-                    ErrorBanner(message = message, onDismiss = onDismissError)
+                    ErrorBanner(message = message, onDismiss = actions.onDismissError)
                 }
-
-                PitchPanel(
+                Headstock(
                     state = state,
-                    hasPermission = hasPermission,
-                    onPlayTarget = onPlayReference,
-                    onStopReference = onStopReference,
-                    fillAvailableHeight = true,
+                    actions = actions,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                 )
-
-                TunerQuickParamsCard(
-                    state = state,
-                    onA4Click = onA4Click,
-                    onFlatsToggle = onFlatsToggle,
-                    onManageClick = onManageClick
-                )
             }
-
-            // 右栏：独立滚动的弦位列表 + 快速切换调弦列表
-            Column(
-                modifier = Modifier
-                    .weight(0.92f)
-                    .fillMaxHeight()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                StringsSection(
-                    state = state,
-                    onToggleLock = onToggleLock,
-                    onPlayReference = onPlayReference,
-                    onStopReference = onStopReference
-                )
-
-                QuickTuningSwitcherCard(
-                    tunings = state.allTunings,
-                    activeId = state.tuning.id,
-                    useFlats = state.useFlats,
-                    onSelect = onSelectTuning,
-                    onManage = onManageClick
-                )
-
-                Spacer(Modifier.height(8.dp))
-            }
-        }
-    }
-}
-
-// ------------------------------------------------------------------ 顶部调弦栏（竖屏使用）
-
-@Composable
-private fun TunerHeader(
-    state: TunerUiState,
-    onTuningClick: () -> Unit,
-    onA4Click: () -> Unit,
-    onFlatsToggle: () -> Unit,
-    onManageClick: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = state.tuning.name,
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextMain
-                )
-                Text(
-                    text = state.tuning.joinedNames(state.useFlats),
-                    fontSize = 13.sp,
-                    color = TextMuted
-                )
-            }
-            OutlinedButton(onClick = onTuningClick) {
-                Text("切换")
-            }
-        }
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TunerChip(
-                text = "A4 ${formatOneDecimal(state.a4)} Hz",
-                onClick = onA4Click
-            )
-            TunerChip(
-                text = if (state.useFlats) "♭ 降号" else "♯ 升号",
-                onClick = onFlatsToggle
-            )
-            TunerChip(
-                text = "调弦管理",
-                onClick = onManageClick
-            )
         }
     }
 }

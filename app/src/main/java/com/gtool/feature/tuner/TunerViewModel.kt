@@ -363,6 +363,11 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         if (index !in current.tuning.strings.indices) return
         val nextLock = if (current.lockedIndex == index) null else index
         _state.update { withTarget(it, nextLock) }
+        // 参考音跟随锁定：解锁即停止，播放中改锁其他弦则直接切换到新弦参考音
+        val playing = current.playingIndex
+        if (playing != null && playing != nextLock) {
+            if (nextLock == null) stopReference() else playReference(nextLock)
+        }
     }
 
     fun clearStringLock() {
