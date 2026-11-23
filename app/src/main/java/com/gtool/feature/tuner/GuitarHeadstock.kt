@@ -43,16 +43,20 @@ import com.gtool.ui.theme.TextMain
 import com.gtool.ui.theme.TextMuted
 import kotlin.math.abs
 
-private val WoodLight = Color(0xFF4F3728)
-private val WoodDark = Color(0xFF2B1E16)
-private val WoodEdge = Color(0xFF755540)
-private val Rosewood = Color(0xFF1C1511)
-private val TrussCover = Color(0xFF1A1411)
-private val NutBone = Color(0xFFE6DDC8)
-private val BronzeString = Color(0xFFD2B48C)
-private val SteelString = Color(0xFFC9C6BC)
-private val Chrome = Color(0xFFD6D3CA)
-private val ChromeDark = Color(0xFF8E8B83)
+private val WoodLight = Color(0xFF4A3223)
+private val WoodMid = Color(0xFF332218)
+private val WoodDark = Color(0xFF1F150F)
+private val WoodEdge = Color(0xFF8C674E)
+private val PurflingLine = Color(0xFFD2B48C)
+private val Rosewood = Color(0xFF18120F)
+private val TrussCover = Color(0xFF14100E)
+private val NutBone = Color(0xFFEDE3CE)
+private val PearlInlay = Color(0xFFDCD8CC)
+private val BronzeString = Color(0xFFD4AF7A)
+private val SteelString = Color(0xFFCCC9C0)
+private val Chrome = Color(0xFFE0DDD4)
+private val ChromeMid = Color(0xFFB5B1A7)
+private val ChromeDark = Color(0xFF7D7A72)
 
 /**
  * 钢弦民谣吉他 3+3 琴头：弦钮旁标注各弦音高，点击音高锁定 / 解锁该弦；
@@ -67,9 +71,15 @@ fun GuitarHeadstock(
     showTuningBadge: Boolean = false
 ) {
     val strings = state.tuning.strings
+    val topInsetDp = if (showTuningBadge) HEADSTOCK_BADGE_TOP_INSET_DP else 0f
     BoxWithConstraints(modifier) {
-        val geo = remember(maxWidth, maxHeight, strings.size) {
-            computeHeadstockGeometry(maxWidth.value, maxHeight.value, strings.size)
+        val geo = remember(maxWidth, maxHeight, strings.size, topInsetDp) {
+            computeHeadstockGeometry(
+                width = maxWidth.value,
+                height = maxHeight.value,
+                stringCount = strings.size,
+                topInset = topInsetDp
+            )
         }
 
         val stringZone: (Int) -> CentsZone? = { index ->
@@ -82,158 +92,303 @@ fun GuitarHeadstock(
             fun px(v: Float) = v * k
             val cx = px(geo.centerX)
             val nutY = px(geo.nutY)
+            val shoulderY = px(geo.shoulderY)
+            val cornerY = px(geo.cornerY)
+            val bodyTop = px(geo.bodyTop)
 
-            // 琴颈 + 品丝 + 品记点
+            // 1. 琴颈指板（自琴枕向下微扩）+ 包边 + 品丝 + 珍珠母贝品记点
             val neckHalf = px(geo.nutWidth) * 0.5f
+            val neckBottomHalf = neckHalf * 1.06f
             val neckBottom = px(geo.neckBottom)
-            drawRect(
-                color = Rosewood,
-                topLeft = Offset(cx - neckHalf, nutY),
-                size = Size(neckHalf * 2f, neckBottom - nutY)
+            val neckPath = Path().apply {
+                moveTo(cx - neckHalf, nutY)
+                lineTo(cx + neckHalf, nutY)
+                lineTo(cx + neckBottomHalf, neckBottom)
+                lineTo(cx - neckBottomHalf, neckBottom)
+                close()
+            }
+            drawPath(
+                path = neckPath,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Rosewood, Color(0xFF241B16), Rosewood),
+                    startX = cx - neckBottomHalf,
+                    endX = cx + neckBottomHalf
+                )
             )
+            // 指板两侧包边
             drawLine(
-                color = WoodEdge.copy(alpha = 0.55f),
+                color = WoodEdge.copy(alpha = 0.65f),
                 start = Offset(cx - neckHalf, nutY),
-                end = Offset(cx - neckHalf, neckBottom),
-                strokeWidth = 1.5.dp.toPx()
+                end = Offset(cx - neckBottomHalf, neckBottom),
+                strokeWidth = 1.6.dp.toPx()
             )
             drawLine(
-                color = WoodEdge.copy(alpha = 0.55f),
+                color = WoodEdge.copy(alpha = 0.65f),
                 start = Offset(cx + neckHalf, nutY),
-                end = Offset(cx + neckHalf, neckBottom),
-                strokeWidth = 1.5.dp.toPx()
+                end = Offset(cx + neckBottomHalf, neckBottom),
+                strokeWidth = 1.6.dp.toPx()
             )
-            val fretY = nutY + (neckBottom - nutY) * 0.62f
+            // 第一品品丝与品记点
+            val fretRatio = 0.62f
+            val fretY = nutY + (neckBottom - nutY) * fretRatio
+            val fretHalf = neckHalf + (neckBottomHalf - neckHalf) * fretRatio
             drawLine(
-                color = FretWire.copy(alpha = 0.9f),
-                start = Offset(cx - neckHalf, fretY),
-                end = Offset(cx + neckHalf, fretY),
-                strokeWidth = 2.dp.toPx()
+                color = FretWire.copy(alpha = 0.92f),
+                start = Offset(cx - fretHalf + 1.dp.toPx(), fretY),
+                end = Offset(cx + fretHalf - 1.dp.toPx(), fretY),
+                strokeWidth = 2.2.dp.toPx(),
+                cap = StrokeCap.Round
             )
+            if (neckBottom - fretY >= 10.dp.toPx()) {
+                val dotY = (fretY + neckBottom) * 0.5f
+                drawCircle(
+                    color = PearlInlay.copy(alpha = 0.35f),
+                    radius = 3.2.dp.toPx(),
+                    center = Offset(cx, dotY)
+                )
+            }
 
-            // 旋钮杆与旋钮（在琴头下层，先画）
+            // 2. 旋钮总成（在琴头下层绘制：琴头侧边六角轴套 + 传动轴杆 + 竖向流线型琴钮手柄）
+            val kw = px(geo.knobWidth)
+            val kh = px(geo.knobHeight)
+            val collarW = (kw * 0.42f).coerceAtLeast(3.dp.toPx())
+            val collarH = (kh * 0.36f).coerceAtLeast(5.dp.toPx())
             geo.pegs.forEach { peg ->
                 val sign = if (peg.side == PegSide.LEFT) -1f else 1f
                 val y = px(peg.y)
+                val edgeX = px(peg.edgeX)
+                val knobX = px(peg.knobX)
                 val locked = state.lockedIndex == peg.stringIndex
                 val target = state.targetIndex == peg.stringIndex
+
+                // 传动横杆（连接琴头侧边与琴钮手柄）
                 drawLine(
                     color = ChromeDark,
-                    start = Offset(px(peg.edgeX) - sign * 2.dp.toPx(), y),
-                    end = Offset(px(peg.knobX), y),
-                    strokeWidth = 4.5.dp.toPx(),
+                    start = Offset(edgeX - sign * 2.dp.toPx(), y),
+                    end = Offset(knobX, y),
+                    strokeWidth = 3.2.dp.toPx(),
                     cap = StrokeCap.Round
                 )
-                val kw = px(geo.knobWidth)
-                val kh = px(geo.knobHeight)
+                drawLine(
+                    color = Chrome.copy(alpha = 0.7f),
+                    start = Offset(edgeX - sign * 1.dp.toPx(), y - 0.7.dp.toPx()),
+                    end = Offset(knobX, y - 0.7.dp.toPx()),
+                    strokeWidth = 1.1.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // 琴头边缘金属轴套（Bushing Collar）
+                val collarCenterX = edgeX + sign * (collarW * 0.45f)
+                drawRoundRect(
+                    color = ChromeMid,
+                    topLeft = Offset(collarCenterX - collarW / 2f, y - collarH / 2f),
+                    size = Size(collarW, collarH),
+                    cornerRadius = CornerRadius(1.5.dp.toPx())
+                )
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = 0.35f),
+                    topLeft = Offset(collarCenterX - collarW / 2f, y - collarH / 2f),
+                    size = Size(collarW, collarH),
+                    cornerRadius = CornerRadius(1.5.dp.toPx()),
+                    style = Stroke(width = 0.9.dp.toPx())
+                )
+
+                // 竖向肾形/梯形琴钮手柄（Kidney / Keystone Tuning Button）
                 val knobColor = when {
                     locked -> Accent
                     target && state.cents != null -> zoneColor(TrailMath.zoneOf(state.cents.toFloat()))
                     else -> Chrome
                 }
-                drawRoundRect(
-                    color = knobColor,
-                    topLeft = Offset(px(peg.knobX) - kw / 2f, y - kh / 2f),
-                    size = Size(kw, kh),
-                    cornerRadius = CornerRadius(kw * 0.45f, kh * 0.45f)
+                val buttonPath = buildTuningButtonPath(
+                    centerX = knobX,
+                    centerY = y,
+                    width = kw,
+                    height = kh,
+                    sign = sign
                 )
-                drawRoundRect(
-                    color = Color.Black.copy(alpha = 0.28f),
-                    topLeft = Offset(px(peg.knobX) - kw / 2f, y - kh / 2f),
-                    size = Size(kw, kh),
-                    cornerRadius = CornerRadius(kw * 0.45f, kh * 0.45f),
+                drawPath(path = buttonPath, color = knobColor)
+                // 手柄内侧高光与立体描边
+                drawPath(
+                    path = buttonPath,
+                    color = Color.White.copy(alpha = if (locked) 0.35f else 0.25f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                drawPath(
+                    path = buttonPath,
+                    color = Color.Black.copy(alpha = 0.38f),
+                    style = Stroke(width = 1.1.dp.toPx())
+                )
+            }
+
+            // 3. 钢弦民谣吉他琴头经典轮廓（琴枕上方 S 形流畅外扩肩部 + 近乎平直的弦钮侧边 + 顶部弧形双肩皇冠顶）
+            val topHalf = px(geo.topWidth) * 0.5f
+            val shoulderHalf = px(geo.shoulderWidth) * 0.5f
+            val outline = buildAcousticHeadstockPath(
+                cx = cx,
+                bodyTop = bodyTop,
+                cornerY = cornerY,
+                shoulderY = shoulderY,
+                nutY = nutY,
+                neckHalf = neckHalf,
+                shoulderHalf = shoulderHalf,
+                topHalf = topHalf
+            )
+            drawPath(
+                path = outline,
+                brush = Brush.verticalGradient(
+                    colors = listOf(WoodLight, WoodMid, WoodDark),
+                    startY = bodyTop,
+                    endY = nutY
+                )
+            )
+            // 琴头中轴微弱高光木纹带
+            drawPath(
+                path = outline,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        WoodEdge.copy(alpha = 0.14f),
+                        Color.Transparent
+                    ),
+                    startX = cx - topHalf * 0.7f,
+                    endX = cx + topHalf * 0.7f
+                )
+            )
+            // 琴头内层象牙色镶边线（Inner Binding / Purfling）
+            val inset = 3.5.dp.toPx()
+            if (neckHalf > inset * 2.5f) {
+                val innerOutline = buildAcousticHeadstockPath(
+                    cx = cx,
+                    bodyTop = bodyTop + inset * 1.05f,
+                    cornerY = cornerY + inset * 0.7f,
+                    shoulderY = shoulderY - inset * 0.4f,
+                    nutY = nutY - inset * 0.9f,
+                    neckHalf = (neckHalf - inset).coerceAtLeast(4f),
+                    shoulderHalf = (shoulderHalf - inset).coerceAtLeast(8f),
+                    topHalf = (topHalf - inset).coerceAtLeast(10f)
+                )
+                drawPath(
+                    path = innerOutline,
+                    color = PurflingLine.copy(alpha = 0.30f),
                     style = Stroke(width = 1.dp.toPx())
                 )
             }
+            // 琴头外边缘木质包边
+            drawPath(
+                path = outline,
+                color = WoodEdge.copy(alpha = 0.88f),
+                style = Stroke(width = 1.8.dp.toPx())
+            )
 
-            // 琴头外形（顶部为民谣双峰冠）
-            val topHalf = px(geo.topWidth) / 2f
-            val bodyTop = px(geo.bodyTop)
-            val cornerY = px(geo.cornerY)
-            val outline = Path().apply {
-                moveTo(cx - neckHalf, nutY)
-                lineTo(cx - topHalf, cornerY)
-                cubicTo(
-                    cx - topHalf * 0.9f, bodyTop,
-                    cx - topHalf * 0.35f, bodyTop - (cornerY - bodyTop) * 0.3f,
-                    cx, bodyTop + (cornerY - bodyTop) * 0.55f
-                )
-                cubicTo(
-                    cx + topHalf * 0.35f, bodyTop - (cornerY - bodyTop) * 0.3f,
-                    cx + topHalf * 0.9f, bodyTop,
-                    cx + topHalf, cornerY
-                )
-                lineTo(cx + neckHalf, nutY)
+            // 4. 琴头顶部中心珍珠母贝菱形装饰与琴颈调节杆钟形盖板（Truss Rod Bell Cover）
+            val bodyHeightPx = nutY - bodyTop
+            val crownCrestY = bodyTop + bodyHeightPx * 0.095f
+            val diamondHalfW = topHalf * 0.075f
+            val diamondHalfH = bodyHeightPx * 0.024f
+            val diamondPath = Path().apply {
+                moveTo(cx, crownCrestY - diamondHalfH)
+                lineTo(cx + diamondHalfW, crownCrestY)
+                lineTo(cx, crownCrestY + diamondHalfH)
+                lineTo(cx - diamondHalfW, crownCrestY)
                 close()
             }
-            drawPath(
-                outline,
-                brush = Brush.verticalGradient(listOf(WoodLight, WoodDark), startY = bodyTop, endY = nutY)
-            )
-            drawPath(outline, color = WoodEdge.copy(alpha = 0.8f), style = Stroke(width = 1.8.dp.toPx()))
+            drawPath(diamondPath, color = PearlInlay.copy(alpha = 0.42f))
 
-            // 琴颈调节杆盖板（琴枕上方钟形盖板）
-            val coverHeight = (nutY - bodyTop) * 0.14f
-            val coverHalfWidth = neckHalf * 0.24f
-            val coverBottom = nutY - 7.dp.toPx()
+            val coverHeight = bodyHeightPx * 0.145f
+            val coverHalfWidth = neckHalf * 0.25f
+            val coverBottom = nutY - 6.5.dp.toPx()
             val coverTop = coverBottom - coverHeight
             val trussPath = Path().apply {
                 moveTo(cx, coverTop)
                 cubicTo(
-                    cx + coverHalfWidth * 1.15f, coverTop + coverHeight * 0.35f,
-                    cx + coverHalfWidth, coverBottom - coverHeight * 0.15f,
-                    cx + coverHalfWidth * 0.7f, coverBottom
+                    cx + coverHalfWidth * 1.18f, coverTop + coverHeight * 0.36f,
+                    cx + coverHalfWidth, coverBottom - coverHeight * 0.14f,
+                    cx + coverHalfWidth * 0.68f, coverBottom
                 )
-                lineTo(cx - coverHalfWidth * 0.7f, coverBottom)
+                lineTo(cx - coverHalfWidth * 0.68f, coverBottom)
                 cubicTo(
-                    cx - coverHalfWidth, coverBottom - coverHeight * 0.15f,
-                    cx - coverHalfWidth * 1.15f, coverTop + coverHeight * 0.35f,
+                    cx - coverHalfWidth, coverBottom - coverHeight * 0.14f,
+                    cx - coverHalfWidth * 1.18f, coverTop + coverHeight * 0.36f,
                     cx, coverTop
                 )
                 close()
             }
             drawPath(trussPath, color = TrussCover)
-            drawPath(trussPath, color = WoodEdge.copy(alpha = 0.5f), style = Stroke(width = 1.dp.toPx()))
+            drawPath(trussPath, color = PurflingLine.copy(alpha = 0.42f), style = Stroke(width = 1.dp.toPx()))
 
-            // 琴弦：琴颈段 + 琴枕到弦轴（低音铜缠弦偏暖、高音裸钢弦偏银）
+            // 5. 琴枕（Bone Nut，置于琴弦下方或刻有弦槽）
+            val nutHalfH = 3.dp.toPx()
+            drawRoundRect(
+                color = NutBone,
+                topLeft = Offset(cx - neckHalf, nutY - nutHalfH),
+                size = Size(neckHalf * 2f, nutHalfH * 2f),
+                cornerRadius = CornerRadius(2.dp.toPx())
+            )
+            drawRoundRect(
+                color = WoodDark.copy(alpha = 0.45f),
+                topLeft = Offset(cx - neckHalf, nutY - nutHalfH),
+                size = Size(neckHalf * 2f, nutHalfH * 2f),
+                cornerRadius = CornerRadius(2.dp.toPx()),
+                style = Stroke(width = 0.9.dp.toPx())
+            )
+
+            // 6. 琴弦：指板段 + 琴枕至弦轴内侧切线（低音铜缠弦偏暖、高音裸钢弦偏银）
+            val postR = px(geo.postRadius)
             geo.pegs.forEach { peg ->
                 val i = peg.stringIndex
+                val sign = if (peg.side == PegSide.LEFT) -1f else 1f
                 val nutX = px(geo.nutStringX.getOrElse(i) { geo.centerX })
                 val isTarget = state.targetIndex == i
                 val isLocked = state.lockedIndex == i
                 val zone = stringZone(i)
-                val base = (2.5f - i * 0.25f).coerceAtLeast(1.1f).dp.toPx()
-                val idleColor = if (i < 4) BronzeString.copy(alpha = 0.65f) else SteelString.copy(alpha = 0.65f)
+                val base = (2.4f - i * 0.24f).coerceAtLeast(1.1f).dp.toPx()
+                val idleColor = if (i < 4) BronzeString.copy(alpha = 0.72f) else SteelString.copy(alpha = 0.72f)
                 val color = when {
                     isTarget && state.cents != null && zone != null -> zoneColor(zone)
                     isLocked -> Accent
                     else -> idleColor
                 }
                 val width = if (isTarget || isLocked) base + 1.1.dp.toPx() else base
+                // 琴弦缠绕在弦轴靠近中轴线一侧的切点处
+                val postTangentX = px(peg.postX) - sign * (postR * 0.58f)
                 drawLine(color, Offset(nutX, nutY), Offset(nutX, neckBottom), width)
-                drawLine(color, Offset(nutX, nutY), Offset(px(peg.postX), px(peg.y)), width, cap = StrokeCap.Round)
+                drawLine(color, Offset(nutX, nutY), Offset(postTangentX, px(peg.y)), width, cap = StrokeCap.Round)
             }
 
-            // 琴枕
-            drawRoundRect(
-                color = NutBone,
-                topLeft = Offset(cx - neckHalf, nutY - 2.8.dp.toPx()),
-                size = Size(neckHalf * 2f, 5.6.dp.toPx()),
-                cornerRadius = CornerRadius(2.dp.toPx())
-            )
-
-            // 弦轴（缠弦柱 + 金属垫圈）
-            val postR = px(geo.postRadius)
+            // 7. 弦轴（金属垫圈 + 缠弦线圈 + 银色弦轴柱顶盖 + 穿弦孔）
             geo.pegs.forEach { peg ->
+                val i = peg.stringIndex
                 val center = Offset(px(peg.postX), px(peg.y))
-                val isLocked = state.lockedIndex == peg.stringIndex
+                val isTarget = state.targetIndex == i
+                val isLocked = state.lockedIndex == i
+                val zone = stringZone(i)
+                val activeColor = when {
+                    isTarget && state.cents != null && zone != null -> zoneColor(zone)
+                    isLocked -> Accent
+                    else -> null
+                }
+                // 底层金属六角/圆形垫圈（Washer）
                 drawCircle(
-                    color = if (isLocked) Accent.copy(alpha = 0.85f) else ChromeDark,
-                    radius = postR * 1.65f,
+                    color = activeColor?.copy(alpha = 0.85f) ?: ChromeDark,
+                    radius = postR * 1.68f,
                     center = center
                 )
-                drawCircle(color = Chrome, radius = postR, center = center)
-                drawCircle(color = Rosewood, radius = postR * 0.35f, center = center)
+                drawCircle(
+                    color = Color.Black.copy(alpha = 0.35f),
+                    radius = postR * 1.68f,
+                    center = center,
+                    style = Stroke(width = 0.9.dp.toPx())
+                )
+                // 缠绕在弦轴上的琴弦金属圈
+                val coilColor = activeColor ?: if (i < 4) BronzeString else SteelString
+                drawCircle(
+                    color = coilColor.copy(alpha = 0.9f),
+                    radius = postR * 1.18f,
+                    center = center
+                )
+                // 弦轴顶盖与中心穿弦孔
+                drawCircle(color = Chrome, radius = postR * 0.92f, center = center)
+                drawCircle(color = Rosewood, radius = postR * 0.34f, center = center)
             }
         }
 
@@ -350,5 +505,124 @@ private fun PegLabel(
                 )
             }
         }
+    }
+}
+
+/**
+ * 构建经典 3+3 原声民谣吉他琴头轮廓：
+ * - 琴枕上方（[nutY] -> [shoulderY]）通过 S 形凹转凸过渡弧迅速外扩出琴头下肩；
+ * - 弦钮工作区（[shoulderY] -> [cornerY]）两侧保持挺拔修长、微幅外扩；
+ * - 顶部（[cornerY] -> [bodyTop]）采用圆润双肩与经典原声吉他中心冠峰（Open-Book / Crown Crest）造型。
+ */
+private fun buildAcousticHeadstockPath(
+    cx: Float,
+    bodyTop: Float,
+    cornerY: Float,
+    shoulderY: Float,
+    nutY: Float,
+    neckHalf: Float,
+    shoulderHalf: Float,
+    topHalf: Float
+): Path {
+    val flareSpan = (nutY - shoulderY).coerceAtLeast(1f)
+    val sideSpan = (shoulderY - cornerY).coerceAtLeast(1f)
+    val crownSpan = (cornerY - bodyTop).coerceAtLeast(1f)
+    return Path().apply {
+        // 起点：琴枕左端
+        moveTo(cx - neckHalf, nutY)
+        // 左侧琴颈至琴头下肩 S 形外扩弧
+        cubicTo(
+            cx - neckHalf, nutY - flareSpan * 0.44f,
+            cx - shoulderHalf * 1.01f, shoulderY + flareSpan * 0.38f,
+            cx - shoulderHalf, shoulderY
+        )
+        // 左侧弦钮区侧边（微收腰后平滑延伸至上肩角）
+        cubicTo(
+            cx - shoulderHalf * 0.985f, shoulderY - sideSpan * 0.34f,
+            cx - topHalf * 1.005f, cornerY + sideSpan * 0.32f,
+            cx - topHalf, cornerY
+        )
+        // 左上圆角肩部至左冠峰
+        cubicTo(
+            cx - topHalf, bodyTop + crownSpan * 0.28f,
+            cx - topHalf * 0.85f, bodyTop + crownSpan * 0.02f,
+            cx - topHalf * 0.62f, bodyTop + crownSpan * 0.02f
+        )
+        // 左冠峰经内弧过渡至中心微凸冠顶
+        cubicTo(
+            cx - topHalf * 0.38f, bodyTop + crownSpan * 0.02f,
+            cx - topHalf * 0.22f, bodyTop + crownSpan * 0.36f,
+            cx, bodyTop + crownSpan * 0.14f
+        )
+        // 中心微凸冠顶经内弧过渡至右冠峰
+        cubicTo(
+            cx + topHalf * 0.22f, bodyTop + crownSpan * 0.36f,
+            cx + topHalf * 0.38f, bodyTop + crownSpan * 0.02f,
+            cx + topHalf * 0.62f, bodyTop + crownSpan * 0.02f
+        )
+        // 右冠峰至右上圆角肩部
+        cubicTo(
+            cx + topHalf * 0.85f, bodyTop + crownSpan * 0.02f,
+            cx + topHalf, bodyTop + crownSpan * 0.28f,
+            cx + topHalf, cornerY
+        )
+        // 右侧弦钮区侧边
+        cubicTo(
+            cx + topHalf * 1.005f, cornerY + sideSpan * 0.32f,
+            cx + shoulderHalf * 0.985f, shoulderY - sideSpan * 0.34f,
+            cx + shoulderHalf, shoulderY
+        )
+        // 右侧琴头下肩至琴枕 S 形收拢弧
+        cubicTo(
+            cx + shoulderHalf * 1.01f, shoulderY + flareSpan * 0.38f,
+            cx + neckHalf, nutY - flareSpan * 0.44f,
+            cx + neckHalf, nutY
+        )
+        close()
+    }
+}
+
+/**
+ * 构建吉他弦钮手柄（外侧微宽、内侧微收的流线型 Kidney / Keystone 旋钮轮廓）。
+ */
+private fun buildTuningButtonPath(
+    centerX: Float,
+    centerY: Float,
+    width: Float,
+    height: Float,
+    sign: Float
+): Path {
+    val hw = width * 0.5f
+    val hh = height * 0.5f
+    val innerX = centerX - sign * hw * 0.86f
+    val outerX = centerX + sign * hw
+    val midInnerX = centerX - sign * hw * 0.96f
+    return Path().apply {
+        moveTo(centerX, centerY - hh)
+        // 顶部向外侧圆角过渡
+        cubicTo(
+            outerX - sign * hw * 0.1f, centerY - hh,
+            outerX, centerY - hh * 0.72f,
+            outerX, centerY
+        )
+        // 外侧向底部圆角过渡
+        cubicTo(
+            outerX, centerY + hh * 0.72f,
+            outerX - sign * hw * 0.1f, centerY + hh,
+            centerX, centerY + hh
+        )
+        // 底部向内侧（靠近传动轴一侧）过渡
+        cubicTo(
+            innerX, centerY + hh * 0.95f,
+            midInnerX, centerY + hh * 0.58f,
+            midInnerX, centerY
+        )
+        // 内侧向顶部闭合
+        cubicTo(
+            midInnerX, centerY - hh * 0.58f,
+            innerX, centerY - hh * 0.95f,
+            centerX, centerY - hh
+        )
+        close()
     }
 }
