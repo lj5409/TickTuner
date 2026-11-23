@@ -157,9 +157,11 @@ data class HeadstockGeometry(
     val centerX: Float,
     val bodyTop: Float,
     val cornerY: Float,
+    val shoulderY: Float,
     val nutY: Float,
     val neckBottom: Float,
     val topWidth: Float,
+    val shoulderWidth: Float,
     val nutWidth: Float,
     val knobOut: Float,
     val knobWidth: Float,
@@ -171,11 +173,22 @@ data class HeadstockGeometry(
     val nutStringX: List<Float>,
     val pegs: List<PegGeometry>
 ) {
-    /** 琴头在纵坐标 y 处的半宽（琴枕处最窄，顶角处最宽）。 */
+    /** 琴头在纵坐标 y 处的半宽（琴枕上方经 S 形弧过渡外扩至琴头肩部，弦钮区平直微扩）。 */
     fun halfWidthAt(y: Float): Float {
-        val span = (nutY - cornerY).coerceAtLeast(1f)
-        val t = ((nutY - y) / span).coerceIn(0f, 1f)
-        return nutWidth / 2f + (topWidth - nutWidth) / 2f * t
+        return when {
+            y >= nutY -> nutWidth / 2f
+            y >= shoulderY -> {
+                val span = (nutY - shoulderY).coerceAtLeast(1f)
+                val t = ((nutY - y) / span).coerceIn(0f, 1f)
+                val s = t * t * (3f - 2f * t)
+                nutWidth / 2f + (shoulderWidth - nutWidth) / 2f * s
+            }
+            else -> {
+                val span = (shoulderY - cornerY).coerceAtLeast(1f)
+                val u = ((shoulderY - y) / span).coerceIn(0f, 1f)
+                shoulderWidth / 2f + (topWidth - shoulderWidth) / 2f * u
+            }
+        }
     }
 }
 
@@ -200,25 +213,28 @@ fun computeHeadstockGeometry(
     val heightBudget = availH * 0.96f / (1f + neckRatio)
 
     // 标签尺寸：受行距与宽度约束，保证 ≥ 40（接近 48 触控目标）
-    val provisionalSpacing = heightBudget * 0.6f / max(rows - 1, 1)
+    val provisionalSpacing = heightBudget * 0.56f / max(rows - 1, 1)
     val labelSize = min(min(56f, provisionalSpacing * 0.92f), w * 0.16f).coerceAtLeast(40f)
 
-    val widthLimit = (w - 2f * (gap + labelSize) - 8f) / 1.5f
-    val topWidth = min(heightBudget * 0.52f, widthLimit).coerceAtLeast(56f)
-    val bodyHeight = min(heightBudget, topWidth * 2.0f)
+    val widthLimit = (w - 2f * (gap + labelSize) - 8f) / 1.54f
+    val topWidth = min(heightBudget * 0.45f, widthLimit).coerceAtLeast(56f)
+    val bodyHeight = min(heightBudget, topWidth * 2.25f)
     val neckLength = (bodyHeight * neckRatio).coerceAtLeast(20f)
     val total = bodyHeight + neckLength
     val bodyTop = (inset + (availH - total) / 2f).coerceAtLeast(inset)
     val nutY = bodyTop + bodyHeight
-    val cornerY = bodyTop + bodyHeight * 0.06f
-    val nutWidth = topWidth * 0.58f
-    val knobOut = topWidth * 0.25f
+    val cornerY = bodyTop + bodyHeight * 0.085f
+    val shoulderY = nutY - bodyHeight * 0.17f
+    val shoulderWidth = topWidth * 0.91f
+    val nutWidth = topWidth * 0.50f
+    val knobOut = topWidth * 0.27f
     val centerX = w / 2f
 
-    val rowNearest = bodyHeight * 0.18f
-    val rowSpan = bodyHeight * 0.60f
+    val rowNearest = bodyHeight * 0.23f
+    val rowSpan = bodyHeight * 0.56f
     val spacing = if (rows > 1) rowSpan / (rows - 1) else rowSpan
-    val knobHeight = min(spacing * 0.5f, knobOut * 0.95f).coerceAtLeast(8f)
+    val knobWidth = (knobOut * 0.44f).coerceAtLeast(5f)
+    val knobHeight = min(spacing * 0.54f, knobWidth * 1.85f).coerceAtLeast(12f)
 
     val partial = HeadstockGeometry(
         width = w,
@@ -226,16 +242,18 @@ fun computeHeadstockGeometry(
         centerX = centerX,
         bodyTop = bodyTop,
         cornerY = cornerY,
+        shoulderY = shoulderY,
         nutY = nutY,
         neckBottom = nutY + neckLength,
         topWidth = topWidth,
+        shoulderWidth = shoulderWidth,
         nutWidth = nutWidth,
         knobOut = knobOut,
-        knobWidth = knobOut * 0.62f,
+        knobWidth = knobWidth,
         knobHeight = knobHeight,
-        postRadius = (topWidth * 0.055f).coerceIn(3f, 8f),
+        postRadius = (topWidth * 0.058f).coerceIn(3.2f, 8f),
         labelSize = labelSize,
-        logoTop = bodyTop + bodyHeight * 0.035f,
+        logoTop = bodyTop + bodyHeight * 0.03f,
         logoHeight = (bodyHeight * 0.13f).coerceIn(22f, 40f),
         nutStringX = emptyList(),
         pegs = emptyList()
@@ -247,7 +265,7 @@ fun computeHeadstockGeometry(
         if (count == 1) centerX else centerX - spread / 2f + spread * i / (count - 1)
     }
 
-    val postInset = topWidth * 0.16f
+    val postInset = topWidth * 0.185f
     val pegs = slots.map { slot ->
         val y = nutY - rowNearest - spacing * slot.row
         val half = partial.halfWidthAt(y)
@@ -261,7 +279,7 @@ fun computeHeadstockGeometry(
             y = y,
             postX = centerX + sign * (half - postInset),
             edgeX = centerX + sign * half,
-            knobX = centerX + sign * (half + knobOut * 0.68f),
+            knobX = centerX + sign * (half + knobOut * 0.76f),
             labelX = labelX
         )
     }

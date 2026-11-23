@@ -143,5 +143,9 @@ class TunerVisualMathTest {
         for (peg in insetGeo.pegs) {
             assertTrue(peg.y > insetGeo.bodyTop && peg.y < insetGeo.nutY)
         }
+        // 琴头肩部显著宽于琴枕，弦钮区 3 个弦轴近乎竖直排列（非倒三角斜列）
+        assertTrue(insetGeo.shoulderWidth >= insetGeo.topWidth * 0.88f)
+        val leftPosts = insetGeo.pegs.filter { it.side == PegSide.LEFT }.map { it.postX }
+        assertTrue(leftPosts.max() - leftPosts.min() <= insetGeo.topWidth * 0.06f)
     }
 }
