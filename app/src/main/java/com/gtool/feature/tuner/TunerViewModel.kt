@@ -56,6 +56,10 @@ data class TunerUiState(
     /** 相对目标弦的音分偏差，正值偏高。 */
     val cents: Double? = null,
     val inTune: Boolean = false,
+    /** 无实时信号时在调音表上方保留的最近一次有效识别读数（切页、切调弦或改 A4 后清空）。 */
+    val lastFrequency: Double? = null,
+    val lastDetectedNote: Note? = null,
+    val lastCents: Double? = null,
     /** 各弦位最近一次识别到的音分偏差（按弦下标缓存，切页或重启后清空）。 */
     val lastStringCents: Map<Int, Double> = emptyMap(),
     val playingIndex: Int? = null
@@ -191,7 +195,14 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     fun stopListening() {
         stopReference()
         if (!listening && capture?.isRunning != true) {
-            _state.update { it.copy(lastStringCents = emptyMap()) }
+            _state.update {
+                it.copy(
+                    lastFrequency = null,
+                    lastDetectedNote = null,
+                    lastCents = null,
+                    lastStringCents = emptyMap()
+                )
+            }
             return
         }
         listening = false
@@ -207,6 +218,9 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 targetIndex = current.lockedIndex,
                 cents = null,
                 inTune = false,
+                lastFrequency = null,
+                lastDetectedNote = null,
+                lastCents = null,
                 lastStringCents = emptyMap()
             )
         }
@@ -232,6 +246,9 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 targetIndex = current.lockedIndex,
                 cents = null,
                 inTune = false,
+                lastFrequency = null,
+                lastDetectedNote = null,
+                lastCents = null,
                 lastStringCents = emptyMap(),
                 playingIndex = null
             )
@@ -343,6 +360,9 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 targetIndex = targetIndex,
                 cents = cents,
                 inTune = cents != null && abs(cents) <= IN_TUNE_CENTS,
+                lastFrequency = smoothed,
+                lastDetectedNote = note,
+                lastCents = cents ?: current.lastCents,
                 lastStringCents = updatedLastCents
             )
         }
@@ -418,7 +438,14 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         stopReference()
         _state.update { current ->
             withTarget(
-                current.copy(tuning = target, lockedIndex = null, lastStringCents = emptyMap()),
+                current.copy(
+                    tuning = target,
+                    lockedIndex = null,
+                    lastFrequency = null,
+                    lastDetectedNote = null,
+                    lastCents = null,
+                    lastStringCents = emptyMap()
+                ),
                 null
             )
         }
@@ -442,6 +469,9 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 customTunings = current.customTunings + custom,
                 allTunings = current.allTunings + custom,
                 lockedIndex = null,
+                lastFrequency = null,
+                lastDetectedNote = null,
+                lastCents = null,
                 lastStringCents = emptyMap()
             ).let { withTarget(it, null) }
         }
@@ -470,6 +500,9 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                     tuning = active,
                     customTunings = customs,
                     allTunings = all,
+                    lastFrequency = null,
+                    lastDetectedNote = null,
+                    lastCents = null,
                     lastStringCents = emptyMap()
                 ),
                 lock
@@ -495,6 +528,9 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                     customTunings = customs,
                     allTunings = all,
                     lockedIndex = null,
+                    lastFrequency = null,
+                    lastDetectedNote = null,
+                    lastCents = null,
                     lastStringCents = emptyMap()
                 ),
                 null
@@ -532,7 +568,16 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         a4Override = clamped
         val playing = _state.value.playingIndex
         _state.update { current ->
-            withTarget(current.copy(a4 = clamped, lastStringCents = emptyMap()), current.lockedIndex)
+            withTarget(
+                current.copy(
+                    a4 = clamped,
+                    lastFrequency = null,
+                    lastDetectedNote = null,
+                    lastCents = null,
+                    lastStringCents = emptyMap()
+                ),
+                current.lockedIndex
+            )
         }
         if (playing != null) {
             val note = _state.value.tuning.strings.getOrNull(playing)

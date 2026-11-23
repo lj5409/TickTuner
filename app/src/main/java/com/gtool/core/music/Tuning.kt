@@ -15,6 +15,10 @@ data class Tuning(
 
     fun joinedNames(useFlats: Boolean = false): String = names(useFlats).joinToString(" ")
 
+    /** 各弦音名紧凑拼接（不含八度），如 EADGBE / DADGBE / DADGAD。 */
+    fun compactPitchNames(useFlats: Boolean = false): String =
+        strings.joinToString("") { it.pitchClass.name(useFlats) }
+
     /** index 0 = 最低音弦（吉他 6 弦）。 */
     fun stringNumber(index: Int): Int = stringCount - index
 
