@@ -1,8 +1,79 @@
 package com.gtool.feature.tuner
 
+import com.gtool.core.music.Note
+import com.gtool.core.music.Tuning
+import com.gtool.core.music.centsFrom
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+
+// ------------------------------------------------------------------ 音高目标匹配（吉他调弦 / 自由调弦，纯逻辑可单测）
+
+/** 单次检测频率在当前调音模式下的目标匹配与音分计算结果。 */
+data class TunerMatchResult(
+    val detectedNote: Note,
+    val matchedIndex: Int?,
+    val targetIndex: Int?,
+    val targetNote: Note?,
+    val cents: Double?,
+    val inTune: Boolean
+)
+
+/** 找出 [tuning] 中与 [frequency] 音分距离最近的弦下标。 */
+fun nearestStringIndex(frequency: Double, tuning: Tuning, a4: Double): Int? {
+    if (tuning.strings.isEmpty()) return null
+    var bestIndex = 0
+    var bestDistance = Double.MAX_VALUE
+    tuning.strings.forEachIndexed { index, note ->
+        val distance = abs(centsFrom(frequency, note.frequency(a4)))
+        if (distance < bestDistance) {
+            bestDistance = distance
+            bestIndex = index
+        }
+    }
+    return bestIndex
+}
+
+/**
+ * 计算 [frequency] 对应的目标音高与音分差值：
+ * - 自由调弦模式（[freeMode] = true）：目标为十二平均律中最近的音名（[Note.fromFrequency]），
+ *   音分始终落在 [-50, +50] 内，不绑定任何吉他弦位（[matchedIndex] / [targetIndex] 为 null）。
+ * - 吉他调弦模式（[freeMode] = false）：锁定弦优先，否则匹配 [tuning] 中最近的弦，
+ *   保留真实音分偏差（不跨八度折叠，避免差八度误判为「准」）。
+ */
+fun evaluateTunerPitch(
+    frequency: Double,
+    tuning: Tuning,
+    a4: Double,
+    freeMode: Boolean,
+    lockedIndex: Int?,
+    inTuneCents: Double = TunerViewModel.IN_TUNE_CENTS
+): TunerMatchResult {
+    val detected = Note.fromFrequency(frequency, a4)
+    if (freeMode) {
+        val cents = centsFrom(frequency, detected.frequency(a4))
+        return TunerMatchResult(
+            detectedNote = detected,
+            matchedIndex = null,
+            targetIndex = null,
+            targetNote = detected,
+            cents = cents,
+            inTune = abs(cents) <= inTuneCents
+        )
+    }
+    val matched = nearestStringIndex(frequency, tuning, a4)
+    val targetIdx = lockedIndex?.takeIf { it in tuning.strings.indices } ?: matched
+    val target = targetIdx?.let { tuning.strings.getOrNull(it) }
+    val cents = target?.let { centsFrom(frequency, it.frequency(a4)) }
+    return TunerMatchResult(
+        detectedNote = detected,
+        matchedIndex = matched,
+        targetIndex = targetIdx,
+        targetNote = target,
+        cents = cents,
+        inTune = cents != null && abs(cents) <= inTuneCents
+    )
+}
 
 // ------------------------------------------------------------------ 横轴音分指示器：轨迹缓冲与映射（纯逻辑，可 JVM 单测）
 

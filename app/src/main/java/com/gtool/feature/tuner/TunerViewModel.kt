@@ -39,6 +39,8 @@ data class TunerUiState(
     val allTunings: List<Tuning> = TuningLibrary.builtIns,
     val a4: Double = 440.0,
     val useFlats: Boolean = false,
+    /** 是否处于自由调弦（半音阶最近音名）模式：目标为最近音名与音分差值，而非吉他调弦弦位。 */
+    val freeMode: Boolean = false,
     val permissionGranted: Boolean = false,
     val listening: Boolean = false,
     val errorMessage: String? = null,
@@ -47,16 +49,16 @@ data class TunerUiState(
     /** 检测置信度 0..1。 */
     val clarity: Double = 0.0,
     val detectedNote: Note? = null,
-    /** 自动匹配到最近的目标弦下标（0 = 最低音弦）。 */
+    /** 自动匹配到最近的目标弦下标（0 = 最低音弦）；自由调弦模式下为 null。 */
     val matchedIndex: Int? = null,
-    /** 用户手动锁定的弦下标，null 表示自动匹配。 */
+    /** 用户手动锁定的弦下标，null 表示自动匹配；自由调弦模式下为 null。 */
     val lockedIndex: Int? = null,
-    /** 当前实际参考的目标弦下标（锁定优先，否则为自动匹配）。 */
+    /** 当前实际参考的目标弦下标（锁定优先，否则为自动匹配）；自由调弦模式下为 null。 */
     val targetIndex: Int? = null,
-    /** 相对目标弦的音分偏差，正值偏高。 */
+    /** 相对目标音的音分偏差，正值偏高。 */
     val cents: Double? = null,
     val inTune: Boolean = false,
-    /** 无实时信号时在调音表上方保留的最近一次有效识别读数（切页、切调弦或改 A4 后清空）。 */
+    /** 无实时信号时在调音表上方保留的最近一次有效识别读数（切页、切调弦、切换模式或改 A4 后清空）。 */
     val lastFrequency: Double? = null,
     val lastDetectedNote: Note? = null,
     val lastCents: Double? = null,
@@ -64,7 +66,8 @@ data class TunerUiState(
     val lastStringCents: Map<Int, Double> = emptyMap(),
     val playingIndex: Int? = null
 ) {
-    val targetNote: Note? get() = targetIndex?.let { tuning.strings.getOrNull(it) }
+    val targetNote: Note?
+        get() = if (freeMode) detectedNote else targetIndex?.let { tuning.strings.getOrNull(it) }
 }
 
 /**
@@ -95,6 +98,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
 
     private var a4Override: Double? = null
     private var flatsOverride: Boolean? = null
+    private var freeModeOverride: Boolean? = null
     private var tuningOrderOverride: List<String>? = null
     private var askedForPermission = false
 
@@ -115,6 +119,10 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 if (pendingFlats != null && appState.settings.useFlats == pendingFlats) {
                     flatsOverride = null
                 }
+                val pendingFree = freeModeOverride
+                if (pendingFree != null && appState.settings.tunerFreeMode == pendingFree) {
+                    freeModeOverride = null
+                }
                 val pendingOrder = tuningOrderOverride
                 if (pendingOrder != null && appState.allTunings.map { it.id } == pendingOrder) {
                     tuningOrderOverride = null
@@ -122,13 +130,16 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 val resolvedAll = tuningOrderOverride?.let { order ->
                     TuningLibrary.orderedAll(appState.customTunings, order)
                 } ?: appState.allTunings
+                val resolvedFree = freeModeOverride ?: appState.settings.tunerFreeMode
                 _state.update { current ->
                     current.copy(
                         tuning = appState.activeTuning,
                         customTunings = resolvedAll.filterNot { it.builtIn },
                         allTunings = resolvedAll,
                         a4 = a4Override ?: appState.settings.a4,
-                        useFlats = flatsOverride ?: appState.settings.useFlats
+                        useFlats = flatsOverride ?: appState.settings.useFlats,
+                        freeMode = resolvedFree,
+                        lockedIndex = if (resolvedFree) null else current.lockedIndex
                     )
                 }
                 refreshDerivedFields()
@@ -137,7 +148,9 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun refreshDerivedFields() {
-        _state.update { current -> withTarget(current, current.lockedIndex) }
+        _state.update { current ->
+            withTarget(current, if (current.freeMode) null else current.lockedIndex)
+        }
     }
 
     // ------------------------------------------------------------------ 权限
@@ -215,7 +228,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 clarity = 0.0,
                 detectedNote = null,
                 matchedIndex = null,
-                targetIndex = current.lockedIndex,
+                targetIndex = if (current.freeMode) null else current.lockedIndex,
                 cents = null,
                 inTune = false,
                 lastFrequency = null,
@@ -243,7 +256,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 clarity = 0.0,
                 detectedNote = null,
                 matchedIndex = null,
-                targetIndex = current.lockedIndex,
+                targetIndex = if (current.freeMode) null else current.lockedIndex,
                 cents = null,
                 inTune = false,
                 lastFrequency = null,
@@ -266,7 +279,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 clarity = 0.0,
                 detectedNote = null,
                 matchedIndex = null,
-                targetIndex = current.lockedIndex,
+                targetIndex = if (current.freeMode) null else current.lockedIndex,
                 cents = null,
                 inTune = false
             )
@@ -304,7 +317,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                         clarity = 0.0,
                         detectedNote = null,
                         matchedIndex = null,
-                        targetIndex = current.lockedIndex,
+                        targetIndex = if (current.freeMode) null else current.lockedIndex,
                         cents = null,
                         inTune = false
                     )
@@ -342,27 +355,29 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
 
         _state.update { current ->
             if (!listening) return@update current
-            val note = Note.fromFrequency(smoothed, current.a4)
-            val matched = nearestStringIndex(smoothed, current.tuning, current.a4)
-            val targetIndex = current.lockedIndex ?: matched
-            val target = targetIndex?.let { current.tuning.strings.getOrNull(it) }
-            val cents = target?.let { centsFrom(smoothed, it.frequency(current.a4)) }
-            val updatedLastCents = if (targetIndex != null && cents != null) {
-                current.lastStringCents + (targetIndex to cents)
+            val match = evaluateTunerPitch(
+                frequency = smoothed,
+                tuning = current.tuning,
+                a4 = current.a4,
+                freeMode = current.freeMode,
+                lockedIndex = current.lockedIndex
+            )
+            val updatedLastCents = if (!current.freeMode && match.targetIndex != null && match.cents != null) {
+                current.lastStringCents + (match.targetIndex to match.cents)
             } else {
                 current.lastStringCents
             }
             current.copy(
                 frequency = smoothed,
                 clarity = result.confidence,
-                detectedNote = note,
-                matchedIndex = matched,
-                targetIndex = targetIndex,
-                cents = cents,
-                inTune = cents != null && abs(cents) <= IN_TUNE_CENTS,
+                detectedNote = match.detectedNote,
+                matchedIndex = match.matchedIndex,
+                targetIndex = match.targetIndex,
+                cents = match.cents,
+                inTune = match.inTune,
                 lastFrequency = smoothed,
-                lastDetectedNote = note,
-                lastCents = cents ?: current.lastCents,
+                lastDetectedNote = match.detectedNote,
+                lastCents = match.cents ?: current.lastCents,
                 lastStringCents = updatedLastCents
             )
         }
@@ -376,13 +391,55 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ------------------------------------------------------------------ 目标弦
+    // ------------------------------------------------------------------ 目标弦 / 自由调弦模式
+
+    fun setFreeMode(enabled: Boolean) {
+        if (_state.value.freeMode == enabled && freeModeOverride == null) return
+        freeModeOverride = enabled
+        if (enabled) stopReference()
+        _state.update { current ->
+            withTarget(
+                current.copy(
+                    freeMode = enabled,
+                    lockedIndex = null,
+                    lastFrequency = null,
+                    lastDetectedNote = null,
+                    lastCents = null,
+                    lastStringCents = emptyMap()
+                ),
+                null
+            )
+        }
+        viewModelScope.launch { repository.updateSettings { it.copy(tunerFreeMode = enabled) } }
+    }
+
+    fun toggleFreeMode() = setFreeMode(!_state.value.freeMode)
 
     fun toggleStringLock(index: Int) {
         val current = _state.value
         if (index !in current.tuning.strings.indices) return
-        val nextLock = if (current.lockedIndex == index) null else index
-        _state.update { withTarget(it, nextLock) }
+        val wasFree = current.freeMode
+        if (wasFree) {
+            freeModeOverride = false
+        }
+        val nextLock = if (!wasFree && current.lockedIndex == index) null else index
+        _state.update { state ->
+            val base = if (wasFree) {
+                state.copy(
+                    freeMode = false,
+                    lastFrequency = null,
+                    lastDetectedNote = null,
+                    lastCents = null,
+                    lastStringCents = emptyMap()
+                )
+            } else {
+                state
+            }
+            withTarget(base, nextLock)
+        }
+        if (wasFree) {
+            viewModelScope.launch { repository.updateSettings { it.copy(tunerFreeMode = false) } }
+        }
         // 参考音跟随锁定：解锁即停止，播放中改锁其他弦则直接切换到新弦参考音
         val playing = current.playingIndex
         if (playing != null && playing != nextLock) {
@@ -395,40 +452,41 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 把检测结果与目标弦一起写回状态；保留真实音分偏差（不跨八度折叠，避免差八度误判为「准」）。
+     * 把检测结果与目标（吉他弦或自由模式最近音名）一起写回状态；
+     * 吉他模式下保留真实音分偏差（不跨八度折叠，避免差八度误判为「准」）。
      */
     private fun withTarget(state: TunerUiState, lockedIndex: Int?): TunerUiState {
-        val frequency = state.frequency
-        val matched = frequency?.let { nearestStringIndex(it, state.tuning, state.a4) }
-        val targetIndex = lockedIndex ?: matched
-        val target = targetIndex?.let { state.tuning.strings.getOrNull(it) }
-        val cents = if (frequency != null && target != null) {
-            centsFrom(frequency, target.frequency(state.a4))
-        } else {
+        val effectiveLock = if (state.freeMode) {
             null
+        } else {
+            lockedIndex?.takeIf { it in state.tuning.strings.indices }
         }
-        return state.copy(
-            lockedIndex = lockedIndex,
-            matchedIndex = matched,
-            targetIndex = targetIndex,
-            cents = cents,
-            detectedNote = frequency?.let { Note.fromFrequency(it, state.a4) },
-            inTune = cents != null && abs(cents) <= IN_TUNE_CENTS
+        val frequency = state.frequency
+        if (frequency == null) {
+            return state.copy(
+                lockedIndex = effectiveLock,
+                matchedIndex = null,
+                targetIndex = effectiveLock,
+                cents = null,
+                detectedNote = null,
+                inTune = false
+            )
+        }
+        val match = evaluateTunerPitch(
+            frequency = frequency,
+            tuning = state.tuning,
+            a4 = state.a4,
+            freeMode = state.freeMode,
+            lockedIndex = effectiveLock
         )
-    }
-
-    private fun nearestStringIndex(frequency: Double, tuning: Tuning, a4: Double): Int? {
-        if (tuning.strings.isEmpty()) return null
-        var bestIndex = 0
-        var bestDistance = Double.MAX_VALUE
-        tuning.strings.forEachIndexed { index, note ->
-            val distance = abs(centsFrom(frequency, note.frequency(a4)))
-            if (distance < bestDistance) {
-                bestDistance = distance
-                bestIndex = index
-            }
-        }
-        return bestIndex
+        return state.copy(
+            lockedIndex = effectiveLock,
+            matchedIndex = match.matchedIndex,
+            targetIndex = match.targetIndex,
+            cents = match.cents,
+            detectedNote = match.detectedNote,
+            inTune = match.inTune
+        )
     }
 
     // ------------------------------------------------------------------ 调弦
@@ -436,10 +494,12 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
     fun selectTuning(id: String) {
         val target = _state.value.allTunings.firstOrNull { it.id == id } ?: return
         stopReference()
+        freeModeOverride = false
         _state.update { current ->
             withTarget(
                 current.copy(
                     tuning = target,
+                    freeMode = false,
                     lockedIndex = null,
                     lastFrequency = null,
                     lastDetectedNote = null,
@@ -449,12 +509,15 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 null
             )
         }
-        viewModelScope.launch { repository.setActiveTuning(target.id) }
+        viewModelScope.launch {
+            repository.updateSettings { it.copy(lastTuningId = target.id, tunerFreeMode = false) }
+        }
     }
 
     fun createCustomTuning(name: String) {
         val base = _state.value.tuning
         stopReference()
+        freeModeOverride = false
         val custom = Tuning(
             id = "custom_" + UUID.randomUUID().toString().take(8),
             name = name.trim().ifEmpty { "自定义调弦" },
@@ -468,6 +531,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
                 tuning = custom,
                 customTunings = current.customTunings + custom,
                 allTunings = current.allTunings + custom,
+                freeMode = false,
                 lockedIndex = null,
                 lastFrequency = null,
                 lastDetectedNote = null,
@@ -478,7 +542,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.upsertTuning(custom)
             repository.reorderTunings(nextOrder)
-            repository.setActiveTuning(custom.id)
+            repository.updateSettings { it.copy(lastTuningId = custom.id, tunerFreeMode = false) }
         }
     }
 
@@ -494,7 +558,7 @@ class TunerViewModel(application: Application) : AndroidViewModel(application) {
             val customs = current.customTunings.map { if (it.id == clean.id) clean else it }
             val all = current.allTunings.map { if (it.id == clean.id) clean else it }
             val active = if (current.tuning.id == clean.id) clean else current.tuning
-            val lock = current.lockedIndex?.takeIf { it in clean.strings.indices }
+            val lock = if (current.freeMode) null else current.lockedIndex?.takeIf { it in clean.strings.indices }
             withTarget(
                 current.copy(
                     tuning = active,
