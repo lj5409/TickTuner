@@ -111,17 +111,25 @@ fun CentsTrailIndicator(
         }
     }
 
-    val note = state.detectedNote
+    val displayNote = state.detectedNote ?: state.lastDetectedNote
+    val displayFrequency = state.frequency ?: state.lastFrequency
+    val displayCentsDouble = state.cents ?: state.lastCents
+    val displayCents = displayCentsDouble?.toFloat()
+    val displayInTune = if (state.cents != null) {
+        state.inTune
+    } else {
+        displayCents != null && abs(displayCents) <= TunerViewModel.IN_TUNE_CENTS.toFloat()
+    }
     val noteColor = when {
-        note == null -> TextMuted.copy(alpha = 0.6f)
-        state.inTune -> Accent
+        displayNote == null -> TextMuted.copy(alpha = 0.6f)
+        displayInTune -> Accent
         else -> TextMain
     }
-    val centsColor = cents?.let { zoneColor(TrailMath.zoneOf(it)) } ?: TextMuted.copy(alpha = 0.6f)
+    val centsColor = displayCents?.let { zoneColor(TrailMath.zoneOf(it)) } ?: TextMuted.copy(alpha = 0.6f)
     val octaveOff = when {
-        cents == null -> null
-        cents >= 600f -> "高过八度"
-        cents <= -600f -> "低过八度"
+        displayCents == null -> null
+        displayCents >= 600f -> "高过八度"
+        displayCents <= -600f -> "低过八度"
         else -> null
     }
 
@@ -154,19 +162,19 @@ fun CentsTrailIndicator(
                     .padding(top = 6.dp, bottom = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 当前音高
+                // 当前音高（无实时信号时保留最近一次有效读数）
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        text = note?.pitchClass?.name(state.useFlats) ?: "—",
+                        text = displayNote?.pitchClass?.name(state.useFlats) ?: "—",
                         fontSize = noteSp.sp,
                         lineHeight = (noteSp * 1.04f).sp,
                         fontWeight = FontWeight.Bold,
                         color = noteColor,
                         maxLines = 1
                     )
-                    if (note != null) {
+                    if (displayNote != null) {
                         Text(
-                            text = note.octave.toString(),
+                            text = displayNote.octave.toString(),
                             fontSize = (noteSp * 0.4f).sp,
                             fontWeight = FontWeight.SemiBold,
                             color = noteColor.copy(alpha = 0.75f),
@@ -182,14 +190,14 @@ fun CentsTrailIndicator(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = state.frequency?.let { "${formatOneDecimal(it)} Hz" } ?: "— Hz",
+                        text = displayFrequency?.let { "${formatOneDecimal(it)} Hz" } ?: "— Hz",
                         fontSize = infoSp.sp,
                         color = TextMuted,
                         maxLines = 1
                     )
                     Spacer(Modifier.width(18.dp))
                     Text(
-                        text = formatCents(state.cents),
+                        text = formatCents(displayCentsDouble),
                         fontSize = (infoSp * 1.15f).sp,
                         fontWeight = FontWeight.Bold,
                         color = centsColor,

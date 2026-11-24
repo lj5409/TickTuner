@@ -51,4 +51,13 @@ class TuningOrderTest {
         assertEquals(base, TuningLibrary.moveItem(base, -1, 2))
         assertEquals(base, TuningLibrary.moveItem(base, 0, 99))
     }
+
+    @Test
+    fun compactPitchNames_formatsWithoutOctaveAndRespectsFlats() {
+        assertEquals("EADGBE", TuningLibrary.STANDARD.compactPitchNames())
+        assertEquals("DADGBE", TuningLibrary.DROP_D.compactPitchNames())
+        assertEquals("DADGAD", TuningLibrary.DADGAD.compactPitchNames())
+        assertEquals("D#G#C#F#A#D#", TuningLibrary.HALF_STEP_DOWN.compactPitchNames(useFlats = false))
+        assertEquals("EbAbDbGbBbEb", TuningLibrary.HALF_STEP_DOWN.compactPitchNames(useFlats = true))
+    }
 }

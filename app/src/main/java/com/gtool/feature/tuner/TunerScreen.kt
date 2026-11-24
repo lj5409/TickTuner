@@ -297,7 +297,6 @@ private fun Headstock(
 private fun SettingsRow(state: TunerUiState, actions: TunerActions, modifier: Modifier = Modifier) {
     TunerSettingsRow(
         state = state,
-        onTuningClick = actions.onTuningClick,
         onA4Click = actions.onA4Click,
         onFlatsToggle = actions.onFlatsToggle,
         onManageClick = actions.onManageClick,

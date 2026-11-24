@@ -1,7 +1,6 @@
 package com.gtool.feature.tuner
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -9,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,29 +69,32 @@ fun TunerChip(
     selected: Boolean = false
 ) {
     Surface(
+        onClick = onClick,
         shape = RoundedCornerShape(50),
         color = if (selected) Accent.copy(alpha = 0.22f) else Surface2,
         contentColor = if (selected) Accent else TextMain,
         modifier = modifier
     ) {
-        Text(
-            text = text,
-            modifier = Modifier
-                .clickable(onClick = onClick)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Box(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
-/** 顶部调弦与参数单行：左侧当前调弦（点击切换），右侧 A4 / ♯♭ / 调弦管理。 */
+/** 顶部调弦与参数单行：左侧直接展示当前调弦各弦音名（如 EADGBE / DADGBE / DADGAD），右侧 A4 / 固定宽度 ♯♭ / 调弦管理。 */
 @Composable
 fun TunerSettingsRow(
     state: TunerUiState,
-    onTuningClick: () -> Unit,
     onA4Click: () -> Unit,
     onFlatsToggle: () -> Unit,
     onManageClick: () -> Unit,
@@ -101,14 +105,25 @@ fun TunerSettingsRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TunerChip(
-            text = state.tuning.name + " ▾",
-            onClick = onTuningClick,
-            modifier = Modifier.weight(1f, fill = false)
+        Text(
+            text = state.tuning.compactPitchNames(state.useFlats),
+            modifier = Modifier
+                .padding(start = 4.dp)
+                .weight(1f, fill = false),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextMain,
+            letterSpacing = 0.8.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         Spacer(Modifier.weight(1f))
         TunerChip(text = "A4 ${formatA4(state.a4)}", onClick = onA4Click)
-        TunerChip(text = if (state.useFlats) "♭" else "♯", onClick = onFlatsToggle)
+        TunerChip(
+            text = if (state.useFlats) "♭" else "♯",
+            onClick = onFlatsToggle,
+            modifier = Modifier.width(40.dp)
+        )
         TunerChip(text = "调弦", onClick = onManageClick)
     }
 }
