@@ -1,10 +1,17 @@
 package com.gtool.feature.tuner
 
+import com.gtool.core.data.AppSettings
+import com.gtool.core.music.Note
+import com.gtool.core.music.PitchClass
+import com.gtool.core.music.TuningLibrary
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
+import kotlin.math.pow
 
 class TunerVisualMathTest {
 
@@ -147,5 +154,124 @@ class TunerVisualMathTest {
         assertTrue(insetGeo.shoulderWidth >= insetGeo.topWidth * 0.88f)
         val leftPosts = insetGeo.pegs.filter { it.side == PegSide.LEFT }.map { it.postX }
         assertTrue(leftPosts.max() - leftPosts.min() <= insetGeo.topWidth * 0.06f)
+    }
+
+    @Test
+    fun evaluateTunerPitch_freeMode_targetsNearestChromaticNoteAndClearsStringMatch() {
+        // C4（261.63 Hz）不属于标准吉他调弦 EADGBE：自由模式下应以最近音名 C4 为目标且音分接近 0
+        val c4 = Note(PitchClass.C, 4)
+        val c4Hz = c4.frequency(440.0)
+        val freeMatch = evaluateTunerPitch(
+            frequency = c4Hz,
+            tuning = TuningLibrary.STANDARD,
+            a4 = 440.0,
+            freeMode = true,
+            lockedIndex = 0
+        )
+        assertEquals(c4, freeMatch.detectedNote)
+        assertEquals(c4, freeMatch.targetNote)
+        assertNull("free mode must not match a guitar string", freeMatch.matchedIndex)
+        assertNull("free mode must ignore locked string index", freeMatch.targetIndex)
+        assertEquals(0.0, freeMatch.cents!!, 1e-6)
+        assertTrue(freeMatch.inTune)
+
+        // 偏高 +12 音分：目标仍为 C4，音分约 +12，未准
+        val sharpHz = c4Hz * 2.0.pow(12.0 / 1200.0)
+        val sharpMatch = evaluateTunerPitch(
+            frequency = sharpHz,
+            tuning = TuningLibrary.STANDARD,
+            a4 = 440.0,
+            freeMode = true,
+            lockedIndex = null
+        )
+        assertEquals(c4, sharpMatch.targetNote)
+        assertEquals(12.0, sharpMatch.cents!!, 1e-4)
+        assertFalse(sharpMatch.inTune)
+    }
+
+    @Test
+    fun evaluateTunerPitch_freeMode_respectsBoundaryAndCustomA4() {
+        // 跨越半音中点（+49¢ -> A4，+51¢ -> A#4 且音分约 -49¢），且所有音分始终在 [-50, +50] 内
+        val a4 = Note(PitchClass.A, 4)
+        val aSharp4 = Note(PitchClass.A_SHARP, 4)
+        val belowMid = evaluateTunerPitch(
+            frequency = a4.frequency(440.0) * 2.0.pow(49.0 / 1200.0),
+            tuning = TuningLibrary.STANDARD,
+            a4 = 440.0,
+            freeMode = true,
+            lockedIndex = null
+        )
+        assertEquals(a4, belowMid.targetNote)
+        assertEquals(49.0, belowMid.cents!!, 1e-4)
+
+        val aboveMid = evaluateTunerPitch(
+            frequency = a4.frequency(440.0) * 2.0.pow(51.0 / 1200.0),
+            tuning = TuningLibrary.STANDARD,
+            a4 = 440.0,
+            freeMode = true,
+            lockedIndex = null
+        )
+        assertEquals(aSharp4, aboveMid.targetNote)
+        assertEquals(-49.0, aboveMid.cents!!, 1e-4)
+
+        // 跟随自定义 A4 = 442 Hz
+        val a442Match = evaluateTunerPitch(
+            frequency = 442.0,
+            tuning = TuningLibrary.STANDARD,
+            a4 = 442.0,
+            freeMode = true,
+            lockedIndex = null
+        )
+        assertEquals(a4, a442Match.targetNote)
+        assertEquals(0.0, a442Match.cents!!, 1e-6)
+        assertTrue(a442Match.inTune)
+    }
+
+    @Test
+    fun evaluateTunerPitch_guitarMode_matchesNearestStringAndPreservesOctaveOffset() {
+        // 标准调弦下弹 C4：最近吉他弦为 2 弦 B3，相对 B3 约 +100 音分
+        val c4Hz = Note(PitchClass.C, 4).frequency(440.0)
+        val autoMatch = evaluateTunerPitch(
+            frequency = c4Hz,
+            tuning = TuningLibrary.STANDARD,
+            a4 = 440.0,
+            freeMode = false,
+            lockedIndex = null
+        )
+        assertEquals(4, autoMatch.matchedIndex)
+        assertEquals(4, autoMatch.targetIndex)
+        assertEquals(Note(PitchClass.B, 3), autoMatch.targetNote)
+        assertEquals(100.0, autoMatch.cents!!, 1e-4)
+        assertFalse(autoMatch.inTune)
+
+        // 锁定 6 弦 E2 时弹高八度 E3：严禁折叠八度，保留 +1200 音分
+        val e3Hz = Note(PitchClass.E, 3).frequency(440.0)
+        val lockedMatch = evaluateTunerPitch(
+            frequency = e3Hz,
+            tuning = TuningLibrary.STANDARD,
+            a4 = 440.0,
+            freeMode = false,
+            lockedIndex = 0
+        )
+        assertEquals(0, lockedMatch.targetIndex)
+        assertEquals(Note(PitchClass.E, 2), lockedMatch.targetNote)
+        assertEquals(1200.0, lockedMatch.cents!!, 1e-4)
+        assertFalse(lockedMatch.inTune)
+    }
+
+    @Test
+    fun appSettings_tunerFreeModeDefaultsFalseForLegacyJsonAndRoundTrips() {
+        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        val legacy = json.decodeFromString(
+            AppSettings.serializer(),
+            """{"a4":440.0,"useFlats":true,"lastTuningId":"drop_d"}"""
+        )
+        assertFalse(legacy.tunerFreeMode)
+        assertTrue(legacy.useFlats)
+        assertEquals("drop_d", legacy.lastTuningId)
+
+        val encoded = json.encodeToString(AppSettings.serializer(), AppSettings(tunerFreeMode = true))
+        val decoded = json.decodeFromString(AppSettings.serializer(), encoded)
+        assertTrue(decoded.tunerFreeMode)
     }
 }

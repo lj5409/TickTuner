@@ -128,6 +128,7 @@ fun TunerScreen() {
         onOpenSettings = { openAppSettings(context) },
         onDismissError = tunerViewModel::clearError,
         onTuningClick = { showPicker = true },
+        onToggleFreeMode = tunerViewModel::toggleFreeMode,
         onA4Click = { showA4Dialog = true },
         onFlatsToggle = tunerViewModel::toggleFlats,
         onManageClick = { showManager = true },
@@ -255,6 +256,7 @@ private class TunerActions(
     val onOpenSettings: () -> Unit,
     val onDismissError: () -> Unit,
     val onTuningClick: () -> Unit,
+    val onToggleFreeMode: () -> Unit,
     val onA4Click: () -> Unit,
     val onFlatsToggle: () -> Unit,
     val onManageClick: () -> Unit,
@@ -288,6 +290,7 @@ private fun Headstock(
         state = state,
         onToggleLock = actions.onToggleLock,
         onTuningClick = actions.onTuningClick,
+        onToggleFreeMode = actions.onToggleFreeMode,
         showTuningBadge = showTuningBadge,
         modifier = modifier
     )
@@ -297,6 +300,7 @@ private fun Headstock(
 private fun SettingsRow(state: TunerUiState, actions: TunerActions, modifier: Modifier = Modifier) {
     TunerSettingsRow(
         state = state,
+        onToggleFreeMode = actions.onToggleFreeMode,
         onA4Click = actions.onA4Click,
         onFlatsToggle = actions.onFlatsToggle,
         onManageClick = actions.onManageClick,
@@ -452,12 +456,12 @@ private fun TabletopTunerLayout(
                         state = state,
                         actions = actions,
                         modifier = Modifier
-                            .weight(1.2f)
+                            .weight(1f)
                             .fillMaxHeight()
                     )
                     Column(
                         modifier = Modifier
-                            .weight(0.8f)
+                            .weight(1f)
                             .fillMaxHeight(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {

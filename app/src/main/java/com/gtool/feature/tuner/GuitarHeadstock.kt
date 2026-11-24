@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -28,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -59,19 +61,21 @@ private val ChromeMid = Color(0xFFB5B1A7)
 private val ChromeDark = Color(0xFF7D7A72)
 
 /**
- * 钢弦民谣吉他 3+3 琴头：弦钮旁标注各弦音高，点击音高锁定 / 解锁该弦；
- * 琴头顶部可点击切换调弦（[showTuningBadge] 为 true 时在琴头上方显示调弦切换徽章，供横屏专注模式使用）。
+ * 钢弦民谣吉他 3+3 琴头：弦钮旁标注各弦音高，点击音高锁定 / 解锁该弦（自由调弦模式下点击弦位自动退出自由模式并锁定该弦）；
+ * 琴头顶部可点击切换调弦（[showTuningBadge] 为 true 时在琴头上方显示调弦/自由调弦切换徽章，供横屏专注模式使用）。
  */
 @Composable
 fun GuitarHeadstock(
     state: TunerUiState,
     onToggleLock: (Int) -> Unit,
     onTuningClick: () -> Unit,
+    onToggleFreeMode: () -> Unit,
     modifier: Modifier = Modifier,
     showTuningBadge: Boolean = false
 ) {
     val strings = state.tuning.strings
     val topInsetDp = if (showTuningBadge) HEADSTOCK_BADGE_TOP_INSET_DP else 0f
+    val headstockAlpha = if (state.freeMode) 0.42f else 1f
     BoxWithConstraints(modifier) {
         val geo = remember(maxWidth, maxHeight, strings.size, topInsetDp) {
             computeHeadstockGeometry(
@@ -87,7 +91,11 @@ fun GuitarHeadstock(
             (live ?: state.lastStringCents[index])?.let { TrailMath.zoneOf(it.toFloat()) }
         }
 
-        Canvas(Modifier.fillMaxSize()) {
+        Canvas(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = headstockAlpha }
+        ) {
             val k = density
             fun px(v: Float) = v * k
             val cx = px(geo.centerX)
@@ -392,25 +400,49 @@ fun GuitarHeadstock(
             }
         }
 
-        // 琴头顶部点击区（或横屏调弦名胶囊）：点击切换调弦
+        // 琴头顶部点击区（或横屏调弦/自由调弦切换徽章）
         val logoWidth = geo.topWidth * 0.92f
         if (showTuningBadge) {
-            Surface(
-                onClick = onTuningClick,
-                shape = RoundedCornerShape(50),
-                color = Surface2.copy(alpha = 0.9f),
-                border = BorderStroke(1.dp, Surface3),
-                modifier = Modifier.align(Alignment.TopCenter)
+            Row(
+                modifier = Modifier.align(Alignment.TopCenter),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = state.tuning.name + " ▾",
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextMain,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Surface(
+                    onClick = onToggleFreeMode,
+                    shape = RoundedCornerShape(50),
+                    color = if (state.freeMode) Accent.copy(alpha = 0.22f) else Surface2.copy(alpha = 0.9f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (state.freeMode) Accent.copy(alpha = 0.6f) else Surface3
+                    )
+                ) {
+                    Text(
+                        text = if (state.freeMode) "自由调弦" else state.tuning.compactPitchNames(state.useFlats),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (state.freeMode) Accent else TextMain,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+                Surface(
+                    onClick = onTuningClick,
+                    shape = RoundedCornerShape(50),
+                    color = Surface2.copy(alpha = 0.9f),
+                    border = BorderStroke(1.dp, Surface3)
+                ) {
+                    Text(
+                        text = "调弦 ▾",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextMain,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         } else {
             Box(
@@ -436,7 +468,9 @@ fun GuitarHeadstock(
                 lastCents = state.lastStringCents[index],
                 sizeDp = geo.labelSize,
                 onClick = { onToggleLock(index) },
-                modifier = Modifier.offset(x = (peg.labelX - half).dp, y = (peg.y - half).dp)
+                modifier = Modifier
+                    .offset(x = (peg.labelX - half).dp, y = (peg.y - half).dp)
+                    .graphicsLayer { alpha = headstockAlpha }
             )
         }
     }

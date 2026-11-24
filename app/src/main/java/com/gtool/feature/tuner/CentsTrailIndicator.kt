@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -73,18 +74,23 @@ fun CentsTrailIndicator(
     modifier: Modifier = Modifier
 ) {
     val cents = state.cents?.toFloat()
+    val targetMidi = state.targetNote?.midi
     val range = TrailMath.RANGE_CENTS
 
-    // 指针：有信号时平滑跟随，从无信号恢复时直接跳到位，避免轨迹出现假滑行
+    // 指针：有信号时平滑跟随；从无信号恢复或目标音切换（如自由模式跨半音、换弦）时直接跳到位，避免假滑行
     val needle = remember { Animatable(0f) }
     val hadSignal = remember { BooleanArray(1) }
-    LaunchedEffect(cents) {
+    val lastNeedleMidi = remember { arrayOf<Int?>(null) }
+    LaunchedEffect(cents, targetMidi) {
         if (cents == null) {
             hadSignal[0] = false
+            lastNeedleMidi[0] = null
             return@LaunchedEffect
         }
         val target = cents.coerceIn(-range, range)
-        if (!hadSignal[0]) {
+        val targetChanged = lastNeedleMidi[0] != null && targetMidi != lastNeedleMidi[0]
+        lastNeedleMidi[0] = targetMidi
+        if (!hadSignal[0] || targetChanged) {
             hadSignal[0] = true
             needle.snapTo(target)
         } else {
@@ -93,17 +99,39 @@ fun CentsTrailIndicator(
     }
 
     val liveCents = rememberUpdatedState(cents)
+    val liveTargetMidi = rememberUpdatedState(targetMidi)
     val trail = remember { CentsTrail() }
     var frameNow by remember { mutableLongStateOf(0L) }
+    var trailClearEpoch by remember { mutableIntStateOf(0) }
+    LaunchedEffect(state.freeMode, state.tuning.id) {
+        trail.clear()
+        hadSignal[0] = false
+        lastNeedleMidi[0] = null
+        trailClearEpoch++
+    }
     LaunchedEffect(trail) {
         var drewLast = false
+        var lastTrailMidi: Int? = null
         while (true) {
             if (trail.size == 0 && liveCents.value == null) {
+                lastTrailMidi = null
                 // 空闲：不请求帧，等待下一次拾到音
                 snapshotFlow { liveCents.value }.first { it != null }
             }
             withFrameMillis { now ->
-                trail.push(now, if (liveCents.value != null) needle.value else null)
+                val currentCents = liveCents.value
+                val currentMidi = liveTargetMidi.value
+                if (currentCents != null) {
+                    if (lastTrailMidi != null && currentMidi != lastTrailMidi) {
+                        // 目标音变化时插入断点，防止跨半音（+50 -> -50）或换弦在轨迹区画出横穿中线的斜线
+                        trail.push(now, null)
+                    }
+                    lastTrailMidi = currentMidi
+                    trail.push(now, needle.value)
+                } else {
+                    lastTrailMidi = null
+                    trail.push(now, null)
+                }
                 trail.prune(now, TrailMath.WINDOW_MS)
                 if (trail.size > 0 || drewLast) frameNow = now
                 drewLast = trail.size > 0
@@ -223,6 +251,8 @@ fun CentsTrailIndicator(
                     val inTune = state.inTune
                     val signal = cents != null
                     Canvas(Modifier.fillMaxSize()) {
+                        @Suppress("UNUSED_VARIABLE")
+                        val epoch = trailClearEpoch
                         val now = frameNow
                         val pad = 22.dp.toPx()
                         val left = pad

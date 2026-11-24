@@ -39,6 +39,8 @@ data class AppSettings(
     val arpeggioPattern: String = "53231323",
     /** 调弦列表自定义显示顺序（按 Tuning.id 排列；为空表示使用默认顺序）。 */
     val tuningOrder: List<String> = emptyList(),
+    /** 调音器是否处于自由调弦（半音阶最近音名）模式。 */
+    val tunerFreeMode: Boolean = false,
     val metronome: MetronomeSettings = MetronomeSettings()
 )
 
