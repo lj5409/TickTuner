@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -21,14 +22,35 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
-    val keystorePropsFile = rootProject.file("keystore.properties")
+    val keystorePropsFile: File? = run {
+        val envPath = System.getenv("TICKTUNER_KEYSTORE_PROPS")
+        if (!envPath.isNullOrBlank()) {
+            val envFile = File(envPath)
+            if (envFile.exists()) return@run envFile
+        }
+        val userHomeProps = File(System.getProperty("user.home"), ".signing/ticktuner/keystore.properties")
+        if (userHomeProps.exists()) {
+            return@run userHomeProps
+        }
+        val rootProps = rootProject.file("keystore.properties")
+        if (rootProps.exists()) {
+            return@run rootProps
+        }
+        null
+    }
     signingConfigs {
-        if (keystorePropsFile.exists()) {
+        if (keystorePropsFile != null) {
             create("release") {
                 val props = Properties().apply {
                     keystorePropsFile.inputStream().use { load(it) }
                 }
-                storeFile = rootProject.file(props.getProperty("storeFile"))
+                val rawStoreFile = props.getProperty("storeFile")
+                val storePath = File(rawStoreFile)
+                storeFile = if (storePath.isAbsolute) {
+                    storePath
+                } else {
+                    keystorePropsFile.parentFile.resolve(rawStoreFile)
+                }
                 storePassword = props.getProperty("storePassword")
                 keyAlias = props.getProperty("keyAlias")
                 keyPassword = props.getProperty("keyPassword")
@@ -45,7 +67,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (keystorePropsFile.exists()) {
+            if (keystorePropsFile != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }

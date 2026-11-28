@@ -11,6 +11,9 @@ captures/
 keystore.properties
 *.jks
 *.keystore
+*.p12
+*.pem
+*.key
 
 # IDE
 .idea/

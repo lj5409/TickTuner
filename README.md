@@ -109,7 +109,7 @@ app/src/main/java/com/gtool/
 # 2. 构建 debug APK
 & ".\scripts\build.ps1"
 
-# 3. 构建签名 release APK（需要根目录 keystore.properties）
+# 3. 构建签名 release APK（默认自动读取 ~/.signing/ticktuner/keystore.properties 或 TICKTUNER_KEYSTORE_PROPS）
 & ".\scripts\build.ps1" -Variant release
 
 # 单元测试
